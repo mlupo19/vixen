@@ -100,7 +100,7 @@ fn main() {
         yaw: 3.141592 / 2.0,
         roll: 0.0,
         lin_speed: 10.0,
-        rot_speed: 2.0,
+        rot_speed: 1.0,
     };
     let mut keyboard_state = keyboard::KeyboardState::new();
     let mut mouse_info = MouseInfo {
@@ -109,7 +109,10 @@ fn main() {
 
     let mut last = std::time::Instant::now();
 
-    display.gl_window().window().set_cursor_grab(true);
+    match display.gl_window().window().set_cursor_grab(true) {
+        Ok(_) => (),
+        Err(e) => println!("Error: {}", e),
+    }
     display.gl_window().window().set_cursor_visible(false);
 
     event_loop.run(move |event, _, control_flow| {
@@ -142,15 +145,18 @@ fn main() {
         target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
 
         let (uwidth, uheight) = target.get_dimensions();
-        let (mouse_x, mouse_y) = (mouse_info.position.x as i32, mouse_info.position.y as i32);
+        let (mouse_x, mouse_y) = (mouse_info.position.x as f32, mouse_info.position.y as f32);
 
-        camera.yaw -= (mouse_x - (uwidth / 2) as i32) as f32 * delta * camera.rot_speed;
-        camera.pitch += (mouse_y - (uheight / 2) as i32) as f32 * delta * camera.rot_speed;
+        camera.yaw -= (mouse_x - (uwidth / 2) as f32) * delta * camera.rot_speed;
+        camera.pitch += (mouse_y - (uheight / 2) as f32) * delta * camera.rot_speed;
 
         camera.pitch = camera.pitch.min(3.141592);
         camera.pitch = camera.pitch.max(0.0);
 
-        display.gl_window().window().set_cursor_position(glium::glutin::dpi::PhysicalPosition { x: uwidth/2, y: uheight/2 });
+        match display.gl_window().window().set_cursor_position(glium::glutin::dpi::PhysicalPosition { x: (uwidth/2), y: (uheight/2) }) {
+            Ok(_) => (),
+            Err(e) => println!("Error: {}", e),
+        }
 
         if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::W) {
             camera.z += camera.lin_speed * delta * camera.yaw.sin();
