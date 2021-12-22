@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glutin::{VirtualKeyCode, ElementState};
+use glium::glutin::event::{VirtualKeyCode, ElementState};
 
 /// Keeps track of which keys have been pressed.
 pub struct KeyboardState {

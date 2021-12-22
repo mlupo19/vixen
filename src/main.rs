@@ -1,16 +1,13 @@
 #[macro_use]
 extern crate glium;
 
+mod keyboard;
+mod camera;
+
 use std::io::Cursor;
 
 struct MouseInfo {
     position: glium::glutin::dpi::PhysicalPosition<f64>,
-}
-
-struct Camera {
-    position: (f32,f32,f32),
-    rotation: (f32,f32,f32),
-    speed: f32,
 }
 
 fn main() {
@@ -53,82 +50,21 @@ fn main() {
     let normal_map = glium::texture::Texture2d::new(&display, image).unwrap();
 
 
-    let vertex_shader_src = r#"
-        #version 150
-        in vec3 position;
-        in vec3 normal;
-        in vec2 tex_coords;
-        out vec3 v_normal;
-        out vec3 v_position;
-        out vec2 v_tex_coords;
-        uniform mat4 perspective;
-        uniform mat4 view;
-        uniform mat4 model;
-        void main() {
-            v_tex_coords = tex_coords;
-            mat4 modelview = view * model;
-            v_normal = transpose(inverse(mat3(modelview))) * normal;
-            gl_Position = perspective * modelview * vec4(position, 1.0);
-            v_position = gl_Position.xyz / gl_Position.w;
-        }
-    "#;
+    let vertex_shader_src = std::fs::read_to_string("src/shaders/vertex.glsl").expect("Unable to read vertex.glsl");
+    let fragment_shader_src = std::fs::read_to_string("src/shaders/frag.glsl").expect("Unable to read frag.glsl");
 
-    let fragment_shader_src = r#"
-        #version 140
-        in vec3 v_normal;
-        in vec3 v_position;
-        in vec2 v_tex_coords;
-        out vec4 color;
-        uniform vec3 u_light;
-        uniform sampler2D diffuse_tex;
-        uniform sampler2D normal_tex;
-        const vec3 specular_color = vec3(1.0, 1.0, 1.0);
-        mat3 cotangent_frame(vec3 normal, vec3 pos, vec2 uv) {
-            vec3 dp1 = dFdx(pos);
-            vec3 dp2 = dFdy(pos);
-            vec2 duv1 = dFdx(uv);
-            vec2 duv2 = dFdy(uv);
-            vec3 dp2perp = cross(dp2, normal);
-            vec3 dp1perp = cross(normal, dp1);
-            vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-            vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-            float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-            return mat3(T * invmax, B * invmax, normal);
-        }
-        void main() {
-            vec3 diffuse_color = texture(diffuse_tex, v_tex_coords).rgb;
-            vec3 ambient_color = diffuse_color * 0.1;
-            vec3 normal_map = texture(normal_tex, v_tex_coords).rgb;
-            mat3 tbn = cotangent_frame(v_normal, v_position, v_tex_coords);
-            vec3 real_normal = normalize(tbn * -(normal_map * 2.0 - 1.0));
-            float diffuse = max(dot(real_normal, normalize(u_light)), 0.0);
-            vec3 camera_dir = normalize(-v_position);
-            vec3 half_direction = normalize(normalize(u_light) + camera_dir);
-            float specular = pow(max(dot(half_direction, real_normal), 0.0), 16.0);
-            color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);
-        }
-    "#;
-
-    let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src,
+    let program = glium::Program::from_source(&display, &vertex_shader_src, &fragment_shader_src,
                                               None).unwrap();
 
-    let mut x: f32 = 0.0;
-    let mut y: f32 = 0.0;
-    let mut z: f32 = -1.5;
-
-    let mut phi: f32 = 3.141592 / 2.0;
-    let mut theta: f32 = 3.141592 / 2.0;
-
-    let mut w = glutin::event::ElementState::Released;
-    let mut s = glutin::event::ElementState::Released;
-    let mut a = glutin::event::ElementState::Released;
-    let mut d = glutin::event::ElementState::Released;
+    let mut camera = camera::Camera { x:0.0,y:0.0,z:-1.5,  pitch:3.141592 / 2.0, yaw:3.141592 / 2.0, roll:0.0, lin_speed: 10.0, rot_speed: 5.0 };
+    let mut keyboard_state = keyboard::KeyboardState::new();
+    let mut mouse_info = MouseInfo { position: glutin::dpi::PhysicalPosition {x: 0.0, y: 0.0} };
 
     let mut last = std::time::Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
         let now = std::time::Instant::now();
-        let delta = (now - last).as_secs_f32().max(1.0 / 144.0);
+        let delta = (now - last).as_secs_f32();
         last = now;
 
         match event {
@@ -137,7 +73,7 @@ fn main() {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                     return;
                 },
-                glutin::event::WindowEvent::CursorMoved {device_id:_, position, ..} => (),
+                glutin::event::WindowEvent::CursorMoved {device_id:_, position, ..} => mouse_info.position = position,
                 _ => return,
             },
             glutin::event::Event::NewEvents(cause) => match cause {
@@ -147,32 +83,25 @@ fn main() {
             },
             
             glutin::event::Event::DeviceEvent { device_id:_, event } => match event {
-                glutin::event::DeviceEvent::Key(key) => 
-                match key.virtual_keycode {
-                    Some(glutin::event::VirtualKeyCode::W) => w = key.state,
-                    Some(glutin::event::VirtualKeyCode::S) => s = key.state,
-                    Some(glutin::event::VirtualKeyCode::A) => a = key.state,
-                    Some(glutin::event::VirtualKeyCode::D) => d = key.state,
-                    _ => (),
-                },
+                glutin::event::DeviceEvent::Key(key) => keyboard_state.process_event(key.state, key.virtual_keycode.unwrap()),
                 _ => (),
             },
             _ => (),
         }
 
-        if w == glutin::event::ElementState::Pressed {
-            z += 1.0 * delta * theta.sin();
-            x += 1.0 * delta * theta.cos();
+        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::W) {
+            camera.z += camera.lin_speed * delta * camera.yaw.sin();
+            camera.x += camera.lin_speed * delta * camera.yaw.cos();
         }
-        if s == glutin::event::ElementState::Pressed {
-            z -= 1.0 * delta * theta.sin();
-            x -= 1.0 * delta * theta.cos();
+        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::S) {
+            camera.z -= camera.lin_speed * delta * camera.yaw.sin();
+            camera.x -= camera.lin_speed * delta * camera.yaw.cos();
         }
-        if a == glutin::event::ElementState::Pressed {
-            theta += 0.1 * delta;
+        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::A) {
+            camera.yaw += camera.rot_speed * delta;
         }
-        if d == glutin::event::ElementState::Pressed {
-            theta -= 0.1 * delta;
+        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::D) {
+            camera.yaw -= camera.rot_speed * delta;
         }
 
         let mut target = display.draw();
@@ -185,7 +114,7 @@ fn main() {
             [0.0, 0.0, 0.0, 1.0f32]
         ];
 
-        let view = view_matrix(&[x, y, z], &[phi.sin()*theta.cos(), phi.cos(), phi.sin()*theta.sin()], &[0.0, 1.0, 0.0]);
+        let view = view_matrix(&[camera.x, camera.y, camera.z], &[camera.pitch.sin()*camera.yaw.cos(), camera.pitch.cos(), camera.pitch.sin()*camera.yaw.sin()], &[0.0, 1.0, 0.0]);
 
         let perspective = {
             let (width, height) = target.get_dimensions();
