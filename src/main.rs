@@ -3,6 +3,16 @@ extern crate glium;
 
 use std::io::Cursor;
 
+struct MouseInfo {
+    position: glium::glutin::dpi::PhysicalPosition<f64>,
+}
+
+struct Camera {
+    position: (f32,f32,f32),
+    rotation: (f32,f32,f32),
+    speed: f32,
+}
+
 fn main() {
     #[allow(unused_imports)]
     use glium::{glutin, Surface};
@@ -114,13 +124,20 @@ fn main() {
     let mut a = glutin::event::ElementState::Released;
     let mut d = glutin::event::ElementState::Released;
 
+    let mut last = std::time::Instant::now();
+
     event_loop.run(move |event, _, control_flow| {
+        let now = std::time::Instant::now();
+        let delta = (now - last).as_secs_f32().max(1.0 / 144.0);
+        last = now;
+
         match event {
             glutin::event::Event::WindowEvent { event, .. } => match event {
                 glutin::event::WindowEvent::CloseRequested => {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                     return;
                 },
+                glutin::event::WindowEvent::CursorMoved {device_id:_, position, ..} => (),
                 _ => return,
             },
             glutin::event::Event::NewEvents(cause) => match cause {
@@ -128,7 +145,8 @@ fn main() {
                 glutin::event::StartCause::Init => (),
                 _ => return,
             },
-            glutin::event::Event::DeviceEvent { device_id:_, event} => match event {
+            
+            glutin::event::Event::DeviceEvent { device_id:_, event } => match event {
                 glutin::event::DeviceEvent::Key(key) => 
                 match key.virtual_keycode {
                     Some(glutin::event::VirtualKeyCode::W) => w = key.state,
@@ -139,20 +157,22 @@ fn main() {
                 },
                 _ => (),
             },
-            _ => return,
+            _ => (),
         }
 
         if w == glutin::event::ElementState::Pressed {
-            z += 0.1;
+            z += 1.0 * delta * theta.sin();
+            x += 1.0 * delta * theta.cos();
         }
         if s == glutin::event::ElementState::Pressed {
-            z -= 0.1;
+            z -= 1.0 * delta * theta.sin();
+            x -= 1.0 * delta * theta.cos();
         }
         if a == glutin::event::ElementState::Pressed {
-            x -= 0.1;
+            theta += 0.1 * delta;
         }
         if d == glutin::event::ElementState::Pressed {
-            x += 0.1;
+            theta -= 0.1 * delta;
         }
 
         let mut target = display.draw();
@@ -201,11 +221,6 @@ fn main() {
                                 u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map },
                     &params).unwrap();
         target.finish().unwrap();
-
-        
-        let next_frame_time = std::time::Instant::now() +
-            std::time::Duration::from_nanos(16_666_667 / 2);
-        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
     });
 }
 
