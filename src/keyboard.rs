@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glium::glutin::event::{VirtualKeyCode, ElementState};
+use glium::glutin::event::{ElementState, VirtualKeyCode};
 
 /// Keeps track of which keys have been pressed.
 pub struct KeyboardState {
@@ -14,10 +14,16 @@ impl KeyboardState {
         }
     }
 
+    #[allow(dead_code)]
     /// Returns true if `key` is pressed.
     pub fn is_pressed(&self, key: &VirtualKeyCode) -> bool {
-        self.state.get(key).map(|&s| s == ElementState::Pressed).unwrap_or(false)
+        self.state
+            .get(key)
+            .map(|&s| s == ElementState::Pressed)
+            .unwrap_or(false)
     }
+
+    #[allow(dead_code)]
     /// Returns true if `key` is released.
     pub fn is_released(&self, key: &VirtualKeyCode) -> bool {
         !self.is_pressed(key)
@@ -28,7 +34,7 @@ impl KeyboardState {
         match key_state {
             ElementState::Pressed => {
                 self.state.insert(code, key_state);
-            },
+            }
             ElementState::Released => {
                 self.state.remove(&code);
             }
