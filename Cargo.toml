@@ -7,8 +7,9 @@ edition = "2021"
 
 [dependencies]
 clipboard = "0.5"
-glium = { version = "0.30", default-features = true }
+glium = { version = "0.31.0", default-features = true }
 image = "0.23"
 imgui = "0.8.0"
 imgui-glium-renderer = "0.8.0"
 imgui-winit-support = "0.8.0"
+ndarray = "0.15.4"

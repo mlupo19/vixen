@@ -3,6 +3,7 @@ extern crate glium;
 
 mod camera;
 mod keyboard;
+mod chunk;
 
 use std::io::Cursor;
 
@@ -147,7 +148,7 @@ fn main() {
         let (uwidth, uheight) = target.get_dimensions();
         let (mouse_x, mouse_y) = (mouse_info.position.x as f32, mouse_info.position.y as f32);
 
-        camera.yaw -= (mouse_x - (uwidth / 2) as f32) * delta * camera.rot_speed;
+        camera.yaw -= (mouse_x - (uwidth / 2) as f32) * delta * camera.rot_speed; 
         camera.pitch += (mouse_y - (uheight / 2) as f32) * delta * camera.rot_speed;
 
         camera.pitch = camera.pitch.min(3.141592);
@@ -173,6 +174,15 @@ fn main() {
         if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::D) {
             camera.z -= camera.lin_speed * delta * camera.yaw.cos();
             camera.x += camera.lin_speed * delta * camera.yaw.sin();
+        }
+
+        // Change to gravity once chunks are implemented
+        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::Space) {
+            if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::LShift) {
+                camera.y -= camera.lin_speed * delta;
+            } else {
+                camera.y += camera.lin_speed * delta;
+            }
         }
 
         let model = [
