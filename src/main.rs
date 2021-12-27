@@ -5,6 +5,7 @@ mod camera;
 mod keyboard;
 mod chunk;
 
+use chunk::Chunk;
 use std::io::Cursor;
 
 struct MouseInfo {
@@ -25,41 +26,12 @@ fn main() {
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
-    #[derive(Copy, Clone)]
-    struct Vertex {
-        position: [f32; 3],
-        normal: [f32; 3],
-        tex_coords: [f32; 2],
-    }
-
-    implement_vertex!(Vertex, position, normal, tex_coords);
-
-    let shape = glium::vertex::VertexBuffer::new(
-        &display,
-        &[
-            Vertex {
-                position: [-1.0, 1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [0.0, 1.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [1.0, 1.0],
-            },
-            Vertex {
-                position: [-1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [1.0, 0.0],
-            },
-        ],
-    )
-    .unwrap();
+    let mut chunk = Chunk::empty((0,0,0));
+    chunk.set_block((0,0,0), chunk::Block::new(1, 5.0));
+    chunk.set_block((1,1,1), chunk::Block::new(1, 5.0));
+    chunk.set_block((2,2,2), chunk::Block::new(2, 10.0));
+    chunk.gen_mesh(&display, &Vec::new());
+    println!("{:?}", chunk.get_mesh());
 
     let image = image::load(
         Cursor::new(&include_bytes!("../res/diffuse.jpg")),
@@ -136,14 +108,21 @@ fn main() {
                 _ => return,
             },
             glutin::event::Event::DeviceEvent { device_id:_, event } => match event {
-                glutin::event::DeviceEvent::Key(key) => keyboard_state.process_event(key.state, key.virtual_keycode.unwrap()),
+                glutin::event::DeviceEvent::Key(key) => {keyboard_state.process_event(key.state, key.virtual_keycode.unwrap());
+                match key.virtual_keycode.as_ref().unwrap() {
+                    glutin::event::VirtualKeyCode::Escape => {
+                        *control_flow = glutin::event_loop::ControlFlow::Exit;
+                        return;
+                },
+                    _ => (),
+                }},
                 _ => (),
             },
             _ => (),
         }
 
         let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
+        target.clear_color_and_depth((0.2, 0.5, 0.8, 1.0), 1.0);
 
         let (uwidth, uheight) = target.get_dimensions();
         let (mouse_x, mouse_y) = (mouse_info.position.x as f32, mouse_info.position.y as f32);
@@ -203,7 +182,7 @@ fn main() {
             .. Default::default()
         };
 
-        target.draw(&shape, glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip), &program,
+        target.draw(chunk.get_mesh().as_ref().unwrap(), chunk.get_index_buffer().as_ref().unwrap(), &program,
                     &uniform! { model: model, view: camera.view_matrix(), perspective: camera.perspective(&target),
                                 u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map },
                     &params).unwrap();
