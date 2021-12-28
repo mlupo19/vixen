@@ -6,9 +6,6 @@ pub struct Camera {
     pub pitch: f32,
     pub yaw: f32,
     pub roll: f32,
-
-    pub lin_speed: f32,
-    pub rot_speed: f32,
 }
 
 impl Camera {

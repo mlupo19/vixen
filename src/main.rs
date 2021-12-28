@@ -4,6 +4,8 @@ extern crate glium;
 mod camera;
 mod keyboard;
 mod chunk;
+mod terrain;
+mod player;
 
 use chunk::Chunk;
 use std::io::Cursor;
@@ -26,11 +28,9 @@ fn main() {
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
-    let mut chunk = Chunk::empty((0,0,0));
-    chunk.set_block((0,0,0), chunk::Block::new(1, 5.0));
-    chunk.set_block((1,1,1), chunk::Block::new(1, 5.0));
-    chunk.set_block((2,2,2), chunk::Block::new(2, 10.0));
-    chunk.gen_mesh(&display, &Vec::new());
+    let terrain_gen = terrain::TerrainGenerator::new(0);
+    let mut chunk = terrain_gen.generate_chunk((0,0,0));
+    chunk.gen_mesh(&display, &vec![Chunk::empty((0,0,0)), Chunk::empty((0,0,0)), Chunk::empty((0,0,0)), Chunk::empty((0,0,0)), Chunk::empty((0,0,0)), Chunk::empty((0,0,0))]);
     println!("{:?}", chunk.get_mesh());
 
     let image = image::load(
@@ -65,20 +65,12 @@ fn main() {
         glium::Program::from_source(&display, &vertex_shader_src, &fragment_shader_src, None)
             .unwrap();
 
-    let mut camera = camera::Camera {
-        x: 0.0,
-        y: 0.0,
-        z: -1.5,
-        pitch: 3.141592 / 2.0,
-        yaw: 3.141592 / 2.0,
-        roll: 0.0,
-        lin_speed: 10.0,
-        rot_speed: 1.0,
-    };
     let mut keyboard_state = keyboard::KeyboardState::new();
     let mut mouse_info = MouseInfo {
         position: glutin::dpi::PhysicalPosition { x: 0.0, y: 0.0 },
     };
+
+    let mut player = player::Player::default();
 
     let mut last = std::time::Instant::now();
 
@@ -127,42 +119,18 @@ fn main() {
         let (uwidth, uheight) = target.get_dimensions();
         let (mouse_x, mouse_y) = (mouse_info.position.x as f32, mouse_info.position.y as f32);
 
-        camera.yaw -= (mouse_x - (uwidth / 2) as f32) * delta * camera.rot_speed; 
-        camera.pitch += (mouse_y - (uheight / 2) as f32) * delta * camera.rot_speed;
+        player.get_camera_mut().yaw -= (mouse_x - (uwidth / 2) as f32) * delta * player.rot_speed; 
+        player.get_camera_mut().pitch += (mouse_y - (uheight / 2) as f32) * delta * player.rot_speed;
 
-        camera.pitch = camera.pitch.min(3.141592);
-        camera.pitch = camera.pitch.max(0.0);
+        player.get_camera_mut().pitch = player.get_camera().pitch.min(3.141592);
+        player.get_camera_mut().pitch = player.get_camera().pitch.max(0.0);
 
         match display.gl_window().window().set_cursor_position(glium::glutin::dpi::PhysicalPosition { x: (uwidth/2), y: (uheight/2) }) {
             Ok(_) => (),
             Err(e) => println!("Error: {}", e),
         }
 
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::W) {
-            camera.z += camera.lin_speed * delta * camera.yaw.sin();
-            camera.x += camera.lin_speed * delta * camera.yaw.cos();
-        }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::S) {
-            camera.z -= camera.lin_speed * delta * camera.yaw.sin();
-            camera.x -= camera.lin_speed * delta * camera.yaw.cos();
-        }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::A) {
-            camera.z += camera.lin_speed * delta * camera.yaw.cos();
-            camera.x -= camera.lin_speed * delta * camera.yaw.sin();
-        }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::D) {
-            camera.z -= camera.lin_speed * delta * camera.yaw.cos();
-            camera.x += camera.lin_speed * delta * camera.yaw.sin();
-        }
-
-        // Change to gravity once chunks are implemented
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::Space) {
-            if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::LShift) {
-                camera.y -= camera.lin_speed * delta;
-            } else {
-                camera.y += camera.lin_speed * delta;
-            }
-        }
+        player.update(delta, &keyboard_state);
 
         let model = [
             [1.0, 0.0, 0.0, 0.0],
@@ -184,7 +152,7 @@ fn main() {
         };
 
         target.draw(chunk.get_mesh().as_ref().unwrap(), chunk.get_index_buffer().as_ref().unwrap(), &program,
-                    &uniform! { model: model, view: camera.view_matrix(), perspective: camera.perspective(&target),
+                    &uniform! { model: model, view: player.get_camera().view_matrix(), perspective: player.get_camera().perspective(&target),
                                 u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map },
                     &params).unwrap();
         target.finish().unwrap();

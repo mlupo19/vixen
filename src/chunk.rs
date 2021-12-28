@@ -1,4 +1,4 @@
-const CHUNK_SIZE: (usize, usize, usize) = (32,32,32);
+pub const CHUNK_SIZE: (usize, usize, usize) = (32,32,32);
 
 #[derive(Clone, Default, Debug)]
 pub struct Block {
@@ -137,9 +137,9 @@ impl Chunk {
                         }
 
                         // Add front face to mesh
-                        if k == 0 || self.block_data.as_ref().unwrap().get((i, j, k-1)).unwrap().id == 0 {
-                            if k == 0 {
-                                if neighbors.get(4).is_some() && (neighbors.get(4).unwrap().block_data.is_none() || neighbors.get(4).unwrap().block_data.as_ref().unwrap().get((i,j,CHUNK_SIZE.2 - 1)).unwrap_or(&Block{id:0,health:0.0}).id == 0) {
+                        if k == CHUNK_SIZE.2 - 1 || self.block_data.as_ref().unwrap().get((i, j, k+1)).unwrap().id == 0 {
+                            if k == CHUNK_SIZE.2 - 1 {
+                                if neighbors.get(4).is_some() && (neighbors.get(4).unwrap().block_data.is_none() || neighbors.get(4).unwrap().block_data.as_ref().unwrap().get((i,j,0)).unwrap_or(&Block{id:0,health:0.0}).id == 0) {
                                     self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::FRONT);
                                 }
                             } else {
@@ -148,9 +148,9 @@ impl Chunk {
                         }
 
                         // Add back face to mesh
-                        if k == CHUNK_SIZE.2 - 1 || self.block_data.as_ref().unwrap().get((i, j, k+1)).unwrap().id == 0 {
-                            if k == CHUNK_SIZE.2 - 1 {
-                                if neighbors.get(5).is_some() && (neighbors.get(5).unwrap().block_data.is_none() || neighbors.get(5).unwrap().block_data.as_ref().unwrap().get((i,j,0)).unwrap_or(&Block{id:0,health:0.0}).id == 0) {
+                        if k == 0 || self.block_data.as_ref().unwrap().get((i, j, k-1)).unwrap().id == 0 {
+                            if k == 0 {
+                                if neighbors.get(5).is_some() && (neighbors.get(5).unwrap().block_data.is_none() || neighbors.get(5).unwrap().block_data.as_ref().unwrap().get((i,j,CHUNK_SIZE.2 - 1)).unwrap_or(&Block{id:0,health:0.0}).id == 0) {
                                     self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::BACK);
                                 }
                             } else {
@@ -189,7 +189,6 @@ impl Chunk {
             Some(_) => (),
         }
         self.block_data.as_mut().unwrap()[[i,j,k]] = block;
-        println!("Block {:?}", self.block_data.as_ref().unwrap().get((i,j,k)));
     }
 
     pub fn get_mesh(&self) -> &Option<glium::vertex::VertexBuffer<Vertex>> {
@@ -202,5 +201,9 @@ impl Chunk {
 
     pub fn get_pos(&self) -> (i32,i32,i32) {
         self.position
+    }
+
+    pub fn get_data_mut(&mut self) -> &mut Option<Box::<ndarray::Array3::<Block>>> {
+        &mut self.block_data
     }
 }
