@@ -23,7 +23,7 @@ fn main() {
             height: 1080,
         })
         .with_position(glium::glutin::dpi::PhysicalPosition { x: 0, y: 0 });
-    let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
+    let cb = glutin::ContextBuilder::new().with_depth_buffer(24).with_multisampling(16);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
     let mut chunk_loader = loader::ChunkLoader::new(0);
@@ -144,6 +144,7 @@ fn main() {
                 .. Default::default()
             },
             backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            multisampling: true,
             .. Default::default()
         };
 
@@ -153,5 +154,7 @@ fn main() {
             u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map }, &params);
 
         target.finish().unwrap();
+
+        println!("{}", 1.0 / delta);
     });
 }
