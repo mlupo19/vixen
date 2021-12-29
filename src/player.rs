@@ -1,5 +1,5 @@
 use crate::camera;
-use crate::keyboard;
+use crate::input;
 
 use glium::glutin;
 
@@ -11,16 +11,26 @@ pub struct Player {
     pub lin_speed: f32,
     pub rot_speed: f32,
     pub camera: camera::Camera,
-    
 }
 
 impl Player {
-    pub fn new((x,y,z): (f32,f32,f32), lin_speed: f32, rot_speed: f32, camera: camera::Camera) -> Player {
-        Player {x: x, y: y, z: z, lin_speed: lin_speed, rot_speed: rot_speed,camera: camera}
+    pub fn new(
+        (x, y, z): (f32, f32, f32),
+        lin_speed: f32,
+        rot_speed: f32,
+        camera: camera::Camera,
+    ) -> Player {
+        Player {
+            x: x,
+            y: y,
+            z: z,
+            lin_speed: lin_speed,
+            rot_speed: rot_speed,
+            camera: camera,
+        }
     }
 
-    pub fn update(&mut self, delta: f32, keyboard_state: &keyboard::KeyboardState) {
-
+    pub fn update(&mut self, delta: f32, keyboard_state: &input::KeyboardState) {
         if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::W) {
             self.z += self.lin_speed * delta * self.camera.yaw.sin();
             self.x += self.lin_speed * delta * self.camera.yaw.cos();
@@ -76,7 +86,7 @@ impl Default for Player {
                 pitch: 3.141592 / 2.0,
                 yaw: 3.141592 / 2.0,
                 roll: 0.0,
-            }
+            },
         }
     }
 }
