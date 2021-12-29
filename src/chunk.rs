@@ -1,3 +1,5 @@
+use crate::chunk_mesh::*;
+
 pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
 #[derive(Clone, Default, Debug)]
@@ -68,8 +70,6 @@ implement_vertex!(Vertex, position, normal, tex_coords);
 pub struct Chunk {
     position: (i32, i32, i32),
     block_data: Option<Box<ndarray::Array3<Block>>>,
-    mesh: Option<glium::VertexBuffer<Vertex>>,
-    indices: Option<glium::IndexBuffer<u16>>,
 }
 
 impl Chunk {
@@ -77,8 +77,6 @@ impl Chunk {
         Chunk {
             position: position,
             block_data: None,
-            mesh: None,
-            indices: None,
         }
     }
 
@@ -127,7 +125,7 @@ impl Chunk {
     }
 
     pub fn gen_mesh(
-        &mut self,
+        &self,
         display: &impl glium::backend::Facade,
         neighbors: (
             Option<&Chunk>,
@@ -137,9 +135,9 @@ impl Chunk {
             Option<&Chunk>,
             Option<&Chunk>,
         ),
-    ) {
-        if self.block_data.as_ref().is_none() {
-            return;
+    ) -> Option<ChunkMesh> {
+        if self.block_data.as_ref().is_none() || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
+            return None;
         }
 
         let mut vertices = vec![];
@@ -386,22 +384,19 @@ impl Chunk {
 
         match glium::vertex::VertexBuffer::new(display, &vertices[..]) {
             Ok(vb) => {
-                self.mesh = Some(vb);
-                self.indices = {
-                    match glium::IndexBuffer::new(
-                        display,
-                        glium::index::PrimitiveType::TrianglesList,
-                        &indices[..],
-                    ) {
-                        Ok(buf) => Some(buf),
-                        Err(err) => {
-                            println!("Error making index buffer: {}", err);
-                            None
-                        }
+                Some(ChunkMesh::new(Some(vb), {
+                    match glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList, &indices[..],) {
+                    Ok(buf) => Some(buf),
+                    Err(err) => {
+                        println!("Error making index buffer: {}", err);
+                        None
                     }
-                }
+                }}))
             }
-            Err(e) => println!("Error creating vertex buffer: {:?}", e),
+            Err(e) => {
+                println!("Error creating vertex buffer: {:?}", e);
+                None
+            }
         }
     }
 
@@ -424,13 +419,6 @@ impl Chunk {
         }
     }
 
-    pub fn get_mesh(&self) -> &Option<glium::vertex::VertexBuffer<Vertex>> {
-        &self.mesh
-    }
-
-    pub fn get_index_buffer<'a>(&self) -> &Option<glium::IndexBuffer<u16>> {
-        &self.indices
-    }
 
     pub fn get_pos(&self) -> (i32, i32, i32) {
         self.position

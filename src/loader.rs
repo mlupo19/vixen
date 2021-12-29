@@ -1,7 +1,8 @@
 use crate::chunk::*;
+use crate::chunk_mesh::*;
 use glium::Surface;
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 struct ChunkCoord {
     x: i32,
     y: i32,
@@ -34,6 +35,7 @@ impl ChunkCoord {
 
 pub struct ChunkLoader {
     chunk_map: std::collections::HashMap<ChunkCoord, Chunk>,
+    mesh_map: std::collections::HashMap<ChunkCoord, ChunkMesh>,
     generator: crate::terrain::TerrainGenerator,
     load_distance: u16,
     render_distance: u16,
@@ -43,6 +45,7 @@ impl ChunkLoader {
     pub fn new(seed: u32) -> Self {
         ChunkLoader {
             chunk_map: std::collections::HashMap::new(),
+            mesh_map: std::collections::HashMap::new(),
             generator: crate::terrain::TerrainGenerator::new(seed),
             load_distance: 2,
             render_distance: 1,
@@ -60,32 +63,52 @@ impl ChunkLoader {
                     ..(player.z as i32 / CHUNK_SIZE.2 as i32 + self.load_distance as i32)
                 {
                     let chunk_coord = ChunkCoord { x: x, y: y, z: z };
+
+                    let mut to_insert = None;
                     match &self.chunk_map.get(&chunk_coord) {
                         None => {
-                            let mut chunk = self.generator.generate_chunk((
+                            let chunk = self.generator.generate_chunk((
                                 chunk_coord.x,
                                 chunk_coord.y,
                                 chunk_coord.z,
                             ));
-                            match chunk.get_mesh() {
+                            to_insert = Some(chunk);
+                        }
+                        Some(c) => {
+                            
+                        },
+                    }
+
+                    match to_insert {
+                        None => (),
+                        Some(chunk) => {self.chunk_map.insert(chunk_coord.clone(), chunk);}
+                    }
+
+                    let neighbors = (
+                        self.chunk_map.get(&chunk_coord.dx(1)),
+                        self.chunk_map.get(&chunk_coord.dx(-1)),
+                        self.chunk_map.get(&chunk_coord.dy(-1)),
+                        self.chunk_map.get(&chunk_coord.dy(1)),
+                        self.chunk_map.get(&chunk_coord.dz(1)),
+                        self.chunk_map.get(&chunk_coord.dz(-1)),
+                    );
+
+                    match &self.chunk_map.get(&chunk_coord) {
+                        None => (),
+                        Some(chunk) => {
+                            match &self.mesh_map.get(&chunk_coord) {
                                 None => {
-                                    chunk.gen_mesh(
+                                    match chunk.gen_mesh(
                                         display,
-                                        (
-                                            self.chunk_map.get(&chunk_coord.dx(1)),
-                                            self.chunk_map.get(&chunk_coord.dx(-1)),
-                                            self.chunk_map.get(&chunk_coord.dy(-1)),
-                                            self.chunk_map.get(&chunk_coord.dy(1)),
-                                            self.chunk_map.get(&chunk_coord.dz(1)),
-                                            self.chunk_map.get(&chunk_coord.dz(-1)),
-                                        ),
-                                    );
+                                        neighbors,
+                                    ) {
+                                        None => (),
+                                        Some(mesh) => {self.mesh_map.insert(chunk_coord.clone(), mesh);}
+                                    }
                                 }
                                 Some(_) => (),
                             }
-                            self.chunk_map.insert(chunk_coord, chunk);
                         }
-                        Some(_) => (),
                     }
                 }
             }
@@ -119,13 +142,13 @@ impl ChunkLoader {
     ) where
         U: glium::uniforms::Uniforms,
     {
-        for (coord, chunk) in &self.chunk_map {
-            let mesh = chunk.get_mesh();
+        for (coord, chunk_mesh) in &self.mesh_map {
+            let mesh = chunk_mesh.get_mesh();
             match mesh {
                 None => (),
                 Some(mesh) => match target.draw(
                     mesh,
-                    chunk.get_index_buffer().as_ref().unwrap(),
+                    chunk_mesh.get_indices().as_ref().unwrap(),
                     program,
                     uniforms,
                     params,

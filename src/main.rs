@@ -7,6 +7,7 @@ mod input;
 mod loader;
 mod player;
 mod terrain;
+mod chunk_mesh;
 
 use chunk::Chunk;
 use std::io::Cursor;
