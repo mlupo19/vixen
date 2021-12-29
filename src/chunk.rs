@@ -2,7 +2,7 @@ use crate::chunk_mesh::*;
 
 pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct Block {
     id: u16,
     health: f32,
@@ -70,6 +70,7 @@ implement_vertex!(Vertex, position, normal, tex_coords);
 pub struct Chunk {
     position: (i32, i32, i32),
     block_data: Option<Box<ndarray::Array3<Block>>>,
+    needs_update: bool,
 }
 
 impl Chunk {
@@ -77,6 +78,7 @@ impl Chunk {
         Chunk {
             position: position,
             block_data: None,
+            needs_update: true,
         }
     }
 
@@ -136,7 +138,7 @@ impl Chunk {
             Option<&Chunk>,
         ),
     ) -> Option<ChunkMesh> {
-        if self.block_data.as_ref().is_none() || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
+        if !self.needs_update || self.block_data.as_ref().is_none() || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
             return None;
         }
 
@@ -407,8 +409,13 @@ impl Chunk {
     pub fn set_block(&mut self, (i, j, k): (usize, usize, usize), block: Block) {
         match self.block_data {
             None => self.block_data = Some(Box::new(ndarray::Array3::default(CHUNK_SIZE))),
-            Some(_) => (),
+            Some(_) => {
+                if self.block_data.as_ref().unwrap()[[i,j,k]] != block {
+                    self.needs_update = true;
+                }
+            },
         }
+        
         self.block_data.as_mut().unwrap()[[i, j, k]] = block;
     }
 
@@ -419,12 +426,15 @@ impl Chunk {
         }
     }
 
-
     pub fn get_pos(&self) -> (i32, i32, i32) {
         self.position
     }
 
     pub fn get_data_mut(&mut self) -> &mut Option<Box<ndarray::Array3<Block>>> {
         &mut self.block_data
+    }
+
+    pub fn set_updated(&mut self) {
+        self.needs_update = false;
     }
 }

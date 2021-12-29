@@ -93,6 +93,7 @@ impl ChunkLoader {
                         self.chunk_map.get(&chunk_coord.dz(-1)),
                     );
 
+                    let mut updated = false;
                     match &self.chunk_map.get(&chunk_coord) {
                         None => (),
                         Some(chunk) => {
@@ -103,11 +104,18 @@ impl ChunkLoader {
                                         neighbors,
                                     ) {
                                         None => (),
-                                        Some(mesh) => {self.mesh_map.insert(chunk_coord.clone(), mesh);}
+                                        Some(mesh) => {self.mesh_map.insert(chunk_coord.clone(), mesh); updated = true;}
                                     }
                                 }
                                 Some(_) => (),
                             }
+                        }
+                    }
+
+                    if updated {
+                        match self.chunk_map.get_mut(&chunk_coord) {
+                            None => (),
+                            Some(chunk) => chunk.set_updated(),
                         }
                     }
                 }
