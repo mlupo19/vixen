@@ -47,7 +47,7 @@ impl ChunkLoader {
             chunk_map: std::collections::HashMap::new(),
             mesh_map: std::collections::HashMap::new(),
             generator: crate::terrain::TerrainGenerator::new(seed),
-            load_distance: 2,
+            load_distance: 3,
             render_distance: 1,
         }
     }

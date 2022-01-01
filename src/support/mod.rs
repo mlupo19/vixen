@@ -9,7 +9,7 @@ use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::path::Path;
 use std::time::Instant;
 
-mod clipboard;
+pub mod clipboard;
 
 pub struct System {
     pub event_loop: EventLoop<()>,
