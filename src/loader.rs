@@ -62,7 +62,7 @@ impl ChunkLoader {
                 for z in (player.z as i32 / CHUNK_SIZE.2 as i32 - self.load_distance as i32)
                     ..(player.z as i32 / CHUNK_SIZE.2 as i32 + self.load_distance as i32)
                 {
-                    let chunk_coord = ChunkCoord { x: x, y: y, z: z };
+                    let chunk_coord = ChunkCoord { x, y, z };
 
                     let mut to_insert = None;
                     match &self.chunk_map.get(&chunk_coord) {
@@ -74,7 +74,7 @@ impl ChunkLoader {
                             ));
                             to_insert = Some(chunk);
                         }
-                        Some(c) => {
+                        Some(_chunk) => {
                             
                         },
                     }
@@ -150,7 +150,7 @@ impl ChunkLoader {
     ) where
         U: glium::uniforms::Uniforms,
     {
-        for (coord, chunk_mesh) in &self.mesh_map {
+        for (_, chunk_mesh) in &self.mesh_map {
             let mesh = chunk_mesh.get_mesh();
             match mesh {
                 None => (),

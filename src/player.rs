@@ -21,36 +21,36 @@ impl Player {
         camera: camera::Camera,
     ) -> Player {
         Player {
-            x: x,
-            y: y,
-            z: z,
-            lin_speed: lin_speed,
-            rot_speed: rot_speed,
-            camera: camera,
+            x,
+            y,
+            z,
+            lin_speed,
+            rot_speed,
+            camera,
         }
     }
 
-    pub fn update(&mut self, delta: f32, keyboard_state: &input::KeyboardState) {
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::W) {
+    pub fn update(&mut self, delta: f32, keyboard_state: &input::Input) {
+        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
             self.z += self.lin_speed * delta * self.camera.yaw.sin();
             self.x += self.lin_speed * delta * self.camera.yaw.cos();
         }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::S) {
+        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::S) {
             self.z -= self.lin_speed * delta * self.camera.yaw.sin();
             self.x -= self.lin_speed * delta * self.camera.yaw.cos();
         }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::A) {
+        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::A) {
             self.z += self.lin_speed * delta * self.camera.yaw.cos();
             self.x -= self.lin_speed * delta * self.camera.yaw.sin();
         }
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::D) {
+        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::D) {
             self.z -= self.lin_speed * delta * self.camera.yaw.cos();
             self.x += self.lin_speed * delta * self.camera.yaw.sin();
         }
 
         // Change to gravity once chunks are implemented
-        if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::Space) {
-            if keyboard_state.is_pressed(&glutin::event::VirtualKeyCode::LShift) {
+        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::Space) {
+            if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::LShift) {
                 self.y -= self.lin_speed * delta;
             } else {
                 self.y += self.lin_speed * delta;
