@@ -8,10 +8,9 @@ mod loader;
 mod player;
 mod terrain;
 mod chunk_mesh;
-mod support;
+mod clipboard;
 
 use std::io::Cursor;
-use support::clipboard;
 
 use imgui::{Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
