@@ -76,7 +76,15 @@ pub struct Chunk {
 impl Chunk {
     pub fn empty(position: (i32, i32, i32)) -> Chunk {
         Chunk {
-            position: position,
+            position,
+            block_data: None,
+            needs_update: false,
+        }
+    }
+
+    pub fn new(position: (i32, i32, i32)) -> Chunk {
+        Chunk {
+            position,
             block_data: None,
             needs_update: true,
         }
@@ -128,7 +136,6 @@ impl Chunk {
 
     pub fn gen_mesh(
         &self,
-        display: &impl glium::backend::Facade,
         neighbors: (
             Option<&Chunk>,
             Option<&Chunk>,
@@ -137,8 +144,8 @@ impl Chunk {
             Option<&Chunk>,
             Option<&Chunk>,
         ),
-    ) -> Option<ChunkMesh> {
-        if !self.needs_update || self.block_data.as_ref().is_none() || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
+    ) -> Option<(Vec::<Vertex>, Vec::<u16>)> {
+        if !self.needs_update || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
             return None;
         }
 
@@ -384,26 +391,7 @@ impl Chunk {
             }
         }
 
-        match glium::vertex::VertexBuffer::new(display, &vertices[..]) {
-            Ok(vb) => {
-                Some(ChunkMesh::new(Some(vb), {
-                    match glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList, &indices[..],) {
-                    Ok(buf) => Some(buf),
-                    Err(err) => {
-                        println!("Error making index buffer: {}", err);
-                        None
-                    }
-                }}))
-            }
-            Err(e) => {
-                println!("Error creating vertex buffer: {:?}", e);
-                None
-            }
-        }
-    }
-
-    pub fn new(x: i32, y: i32, z: i32) -> Chunk {
-        todo!();
+        Some((vertices, indices))
     }
 
     pub fn set_block(&mut self, (i, j, k): (usize, usize, usize), block: Block) {
@@ -436,5 +424,9 @@ impl Chunk {
 
     pub fn set_updated(&mut self) {
         self.needs_update = false;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.block_data.is_none()
     }
 }

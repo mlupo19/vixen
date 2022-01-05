@@ -1,3 +1,5 @@
+use std::os::windows::thread;
+
 use crate::chunk::*;
 use crate::chunk_mesh::*;
 use glium::Surface;
@@ -36,20 +38,65 @@ impl ChunkCoord {
 pub struct ChunkLoader {
     chunk_map: std::collections::HashMap<ChunkCoord, Chunk>,
     mesh_map: std::collections::HashMap<ChunkCoord, ChunkMesh>,
-    generator: crate::terrain::TerrainGenerator,
+    queued_chunks: std::collections::HashSet<ChunkCoord>,
     load_distance: u16,
     render_distance: u16,
+    rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
+    q: multiqueue::MPMCSender<ChunkCoord>,
+    pool: scoped_threadpool::Pool,
 }
 
 impl ChunkLoader {
     pub fn new(seed: u32) -> Self {
+        let load_distance = 6;
+        let generator = crate::terrain::TerrainGenerator::new(seed);
+        let (q, q_rec): (multiqueue::MPMCSender::<ChunkCoord>, multiqueue::MPMCReceiver::<ChunkCoord>) = multiqueue::mpmc_queue((load_distance * load_distance * load_distance) as u64 * 12 * 100);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        for i in 0..7 {
+            let tx = tx.clone(); 
+            let q_rec = q_rec.clone();
+            let generator = generator.clone();
+
+            std::thread::spawn(move || {
+                loop {
+                    let chunk_coord_res = q_rec.recv();
+
+                    match chunk_coord_res {
+                        Ok(chunk_coord) => {
+                            let chunk = generator.generate_chunk((
+                                chunk_coord.x,
+                                chunk_coord.y,
+                                chunk_coord.z,
+                            ));
+
+                            match tx.send((chunk_coord, chunk)) {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    println!("Error sending chunk to main thread: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error receiving chunk coord from main thread: {}", e);
+                        }
+                    }
+                }
+            });
+        }
+        
         ChunkLoader {
             chunk_map: std::collections::HashMap::new(),
             mesh_map: std::collections::HashMap::new(),
-            generator: crate::terrain::TerrainGenerator::new(seed),
-            load_distance: 3,
+            queued_chunks: std::collections::HashSet::new(),
+            load_distance,
             render_distance: 1,
+            rx,
+            q,
+            pool: scoped_threadpool::Pool::new(7),
         }
+
     }
 
     pub fn update(&mut self, player: &crate::player::Player, display: &glium::Display) {
@@ -63,64 +110,109 @@ impl ChunkLoader {
                     ..(player.z as i32 / CHUNK_SIZE.2 as i32 + self.load_distance as i32)
                 {
                     let chunk_coord = ChunkCoord { x, y, z };
+                    let mut to_update = false;
 
-                    let mut to_insert = None;
                     match &self.chunk_map.get(&chunk_coord) {
                         None => {
-                            let chunk = self.generator.generate_chunk((
-                                chunk_coord.x,
-                                chunk_coord.y,
-                                chunk_coord.z,
-                            ));
-                            to_insert = Some(chunk);
+                            match self.queued_chunks.get(&chunk_coord) {
+                                None => {
+                                    match self.q.try_send(chunk_coord.clone()) {
+                                        Ok(_) => {
+                                            to_update = true;
+                                        },
+                                        Err(e) => {
+                                            println!("Error sending chunk coord to workers: {}", e);
+                                        }
+                                    }
+                                },
+                                Some(_) => (),
+                            }
                         }
                         Some(_chunk) => {
                             
                         },
                     }
-
-                    match to_insert {
-                        None => (),
-                        Some(chunk) => {self.chunk_map.insert(chunk_coord.clone(), chunk);}
-                    }
-
-                    let neighbors = (
-                        self.chunk_map.get(&chunk_coord.dx(1)),
-                        self.chunk_map.get(&chunk_coord.dx(-1)),
-                        self.chunk_map.get(&chunk_coord.dy(-1)),
-                        self.chunk_map.get(&chunk_coord.dy(1)),
-                        self.chunk_map.get(&chunk_coord.dz(1)),
-                        self.chunk_map.get(&chunk_coord.dz(-1)),
-                    );
-
-                    let mut updated = false;
-                    match &self.chunk_map.get(&chunk_coord) {
-                        None => (),
-                        Some(chunk) => {
-                            match &self.mesh_map.get(&chunk_coord) {
-                                None => {
-                                    match chunk.gen_mesh(
-                                        display,
-                                        neighbors,
-                                    ) {
-                                        None => (),
-                                        Some(mesh) => {self.mesh_map.insert(chunk_coord.clone(), mesh); updated = true;}
-                                    }
-                                }
-                                Some(_) => (),
-                            }
-                        }
-                    }
-
-                    if updated {
-                        match self.chunk_map.get_mut(&chunk_coord) {
-                            None => (),
-                            Some(chunk) => chunk.set_updated(),
-                        }
+                    if to_update {
+                        self.queued_chunks.insert(chunk_coord);
                     }
                 }
             }
         }
+
+        if let Ok((coord, chunk)) = self.rx.try_recv() {
+            let chunk = chunk;
+            self.chunk_map.insert(coord.clone(), chunk);
+            self.queued_chunks.remove(&coord);
+        }
+
+        let mut updated_chunks = Vec::new();
+        let mut needs_build = Vec::new();
+        let mut to_generate = Vec::new();
+
+        for (coord, chunk) in &self.chunk_map {
+            if !chunk.is_empty() {
+                match self.mesh_map.get(&coord) {
+                    None => {
+                        to_generate.push(coord);
+                    },
+                    Some(_) => (),
+                }
+            }
+        }
+        
+        self.pool.scoped(|scope| {
+            scope.execute(|| {
+                for coord in to_generate {
+                    let neighbors = (
+                        self.chunk_map.get(&coord.dx(1)),
+                        self.chunk_map.get(&coord.dx(-1)),
+                        self.chunk_map.get(&coord.dy(-1)),
+                        self.chunk_map.get(&coord.dy(1)),
+                        self.chunk_map.get(&coord.dz(1)),
+                        self.chunk_map.get(&coord.dz(-1)),
+                    );
+
+                    if let Some(vertices) = self.chunk_map.get(coord).unwrap().gen_mesh(neighbors) {
+                        needs_build.push((coord.clone(), vertices));
+                    }
+                }
+            });
+        });
+
+        for (coord, vertices) in needs_build {
+            match glium::vertex::VertexBuffer::new(display, &vertices.0[..]) {
+                Ok(vb) => {
+                    let mesh = ChunkMesh::new(Some(vb), {
+                        match glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList, &vertices.1[..],) {
+                            Ok(buf) => Some(buf),
+                            Err(err) => {
+                                println!("Error making index buffer: {}", err);
+                                None
+                            }
+                        }
+                    });
+
+                    self.mesh_map.insert(coord.clone(), mesh);
+                    updated_chunks.push(coord.clone());
+                }
+                Err(e) => {
+                    println!("Error creating vertex buffer: {:?}", e);
+                }
+            }
+        }
+
+        for chunk_coord in updated_chunks {
+            self.chunk_map.get_mut(&chunk_coord).unwrap().set_updated();
+        }
+        
+        self.mesh_map.retain(|coord, _| {
+            ((player.x as i32 - (coord.x * CHUNK_SIZE.0 as i32)) / CHUNK_SIZE.0 as i32).abs() <= self.load_distance as i32 && 
+            ((player.y as i32 - (coord.y * CHUNK_SIZE.1 as i32)) / CHUNK_SIZE.1 as i32).abs() <= self.load_distance as i32 &&
+            ((player.z as i32 - (coord.z * CHUNK_SIZE.2 as i32)) / CHUNK_SIZE.2 as i32).abs() <= self.load_distance as i32});
+        self.chunk_map.retain(|coord, _| {
+            ((player.x as i32 - (coord.x * CHUNK_SIZE.0 as i32)) / CHUNK_SIZE.0 as i32).abs() <= self.load_distance as i32 && 
+            ((player.y as i32 - (coord.y * CHUNK_SIZE.1 as i32)) / CHUNK_SIZE.1 as i32).abs() <= self.load_distance as i32 &&
+            ((player.z as i32 - (coord.z * CHUNK_SIZE.2 as i32)) / CHUNK_SIZE.2 as i32).abs() <= self.load_distance as i32});
     }
 
     pub fn get_block(&self, (x, y, z): (i32, i32, i32)) -> Option<&Block> {

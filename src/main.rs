@@ -127,8 +127,8 @@ fn main() {
                     input.update_mouse((0.0, 0.0));
                 }
         
-                player.update(delta, &input);
                 chunk_loader.update(&player, &sys.display);
+                player.update(delta, &input, &chunk_loader);
 
                 
                 let gl_window = sys.display.gl_window();
@@ -232,7 +232,7 @@ fn main() {
     });
 }
 
-fn run_ui(run: &mut bool, ui: &mut Ui, fps: f64) {
+fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64) {
     let window = Window::new("FPS");
     let tok = window.begin(ui).unwrap();
     ui.text(format!("{}", fps));

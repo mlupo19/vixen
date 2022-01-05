@@ -1,5 +1,6 @@
 use crate::camera;
 use crate::input;
+use crate::loader;
 
 use glium::glutin;
 
@@ -8,8 +9,11 @@ pub struct Player {
     pub y: f32,
     pub z: f32,
 
+    pub velocity: (f32,f32,f32),
+
     pub lin_speed: f32,
     pub rot_speed: f32,
+    falling: bool,
     pub camera: camera::Camera,
 }
 
@@ -24,13 +28,15 @@ impl Player {
             x,
             y,
             z,
+            velocity: (0.0,0.0,0.0),
             lin_speed,
             rot_speed,
+            falling: true,
             camera,
         }
     }
 
-    pub fn update(&mut self, delta: f32, keyboard_state: &input::Input) {
+    pub fn update(&mut self, delta: f32, keyboard_state: &input::Input, loader: &loader::ChunkLoader) {
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
             self.z += self.lin_speed * delta * self.camera.yaw.sin();
             self.x += self.lin_speed * delta * self.camera.yaw.cos();
@@ -57,6 +63,14 @@ impl Player {
             }
         }
 
+        if self.falling {
+            //self.velocity.1 -= 10.0 * delta;
+        }
+
+        self.x += self.velocity.0 * delta;
+        self.y += self.velocity.1 * delta;
+        self.z += self.velocity.2 * delta;
+
         self.camera.x = self.x;
         self.camera.y = self.y + 2.0;
         self.camera.z = self.z;
@@ -69,6 +83,10 @@ impl Player {
     pub fn get_camera_mut(&mut self) -> &mut camera::Camera {
         &mut self.camera
     }
+
+    fn collide (&mut self, loader: &loader::ChunkLoader) {
+
+    }
 }
 
 impl Default for Player {
@@ -77,8 +95,10 @@ impl Default for Player {
             x: 0.0,
             y: 0.0,
             z: 0.0,
+            velocity: (0.0,0.0,0.0),
             lin_speed: 10.0,
             rot_speed: 1.0,
+            falling: true,
             camera: camera::Camera {
                 x: 0.0,
                 y: 0.0,

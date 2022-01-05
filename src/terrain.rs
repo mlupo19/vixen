@@ -5,6 +5,7 @@ use noise::Seedable;
 
 use crate::chunk::*;
 
+#[derive(Clone)]
 pub struct TerrainGenerator {
     seed: u32,
     noise: noise::Perlin,
@@ -22,7 +23,7 @@ impl TerrainGenerator {
     }
 
     pub fn generate_chunk(&self, (x, y, z): (i32, i32, i32)) -> Chunk {
-        let mut out = Chunk::empty((x, y, z));
+        let mut out = Chunk::new((x, y, z));
 
         if y > 4 || y < -4 {
             return out;
