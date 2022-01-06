@@ -423,4 +423,8 @@ impl Chunk {
     pub fn is_empty(&self) -> bool {
         self.block_data.is_none()
     }
+
+    pub fn needs_update(&self) -> bool {
+        self.needs_update
+    }
 }
