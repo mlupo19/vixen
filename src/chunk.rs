@@ -4,8 +4,8 @@ pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct Block {
-    id: u16,
-    health: f32,
+    pub id: u16,
+    pub health: f32,
 }
 
 impl Block {
@@ -60,15 +60,13 @@ impl Faces {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tex_coords: [f32; 2],
+    position: u32,
+    tex_coords: u32,
 }
 
-implement_vertex!(Vertex, position, normal, tex_coords);
+implement_vertex!(Vertex, position, tex_coords);
 
 pub struct Chunk {
-    position: (i32, i32, i32),
     block_data: Option<Box<ndarray::Array3<Block>>>,
     needs_update: bool,
 }
@@ -76,7 +74,6 @@ pub struct Chunk {
 impl Chunk {
     pub fn empty(position: (i32, i32, i32)) -> Chunk {
         Chunk {
-            position,
             block_data: None,
             needs_update: false,
         }
@@ -84,7 +81,6 @@ impl Chunk {
 
     pub fn new(position: (i32, i32, i32)) -> Chunk {
         Chunk {
-            position,
             block_data: None,
             needs_update: true,
         }
@@ -105,26 +101,24 @@ impl Chunk {
 
         for c in 0..4 {
             let (fx, fy, fz) = face.points.get(c).unwrap();
-            let point_in_space = (
-                i as i32 + fx + self.position.0 * CHUNK_SIZE.0 as i32,
-                j as i32 + fy + self.position.1 * CHUNK_SIZE.1 as i32,
-                k as i32 + fz + self.position.2 * CHUNK_SIZE.2 as i32,
+            let point_in_chunk_space = (
+                i as i32 + fx,
+                j as i32 + fy,
+                k as i32 + fz,
             );
             mesh_face_index_loc[c] = vertices.len() as usize;
 
             vertices.push(Vertex {
-                position: [
-                    (point_in_space.0 as f32),
-                    (point_in_space.1 as f32),
-                    (point_in_space.2 as f32),
-                ],
-                normal: [
-                    face.normal.0 as f32,
-                    face.normal.1 as f32,
-                    face.normal.2 as f32,
-                ],
+                position: 
+                    (point_in_chunk_space.0 as u32) |
+                    (point_in_chunk_space.1 as u32) << 6 |
+                    (point_in_chunk_space.2 as u32) << 12 | 
+                    (face.normal.0 as u32) << 18 |
+                    (face.normal.1 as u32) << 19 |
+                    (face.normal.2 as u32) << 20
+                ,
                 tex_coords: match face.face_id {
-                    0 | 1 | 2 | 3 | 4 | 5 | _ => TEX_COORDS[c],
+                    0 | 1 | 2 | 3 | 4 | 5 | _ => (TEX_COORDS[c][0] * 1000.0) as u32 | ((TEX_COORDS[c][1] * 1000.0) as u32) << 16,
                 },
             });
         }
@@ -414,9 +408,9 @@ impl Chunk {
         }
     }
 
-    pub fn get_pos(&self) -> (i32, i32, i32) {
-        self.position
-    }
+    // pub fn get_pos(&self) -> (i32, i32, i32) {
+    //     self.position
+    // }
 
     pub fn get_data_mut(&mut self) -> &mut Option<Box<ndarray::Array3<Block>>> {
         &mut self.block_data

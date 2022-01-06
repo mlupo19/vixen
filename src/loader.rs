@@ -3,6 +3,8 @@ use std::os::windows::thread;
 use crate::chunk::*;
 use crate::chunk_mesh::*;
 use glium::Surface;
+use glium::texture::SrgbTexture2d;
+use glium::uniforms::AsUniformValue;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 struct ChunkCoord {
@@ -48,7 +50,7 @@ pub struct ChunkLoader {
 
 impl ChunkLoader {
     pub fn new(seed: u32) -> Self {
-        let load_distance = 6;
+        let load_distance = 12;
         let generator = crate::terrain::TerrainGenerator::new(seed);
         let (q, q_rec): (multiqueue::MPMCSender::<ChunkCoord>, multiqueue::MPMCReceiver::<ChunkCoord>) = multiqueue::mpmc_queue((load_distance * load_distance * load_distance) as u64 * 12 * 100);
 
@@ -139,7 +141,7 @@ impl ChunkLoader {
             }
         }
 
-        if let Ok((coord, chunk)) = self.rx.try_recv() {
+        while let Ok((coord, chunk)) = self.rx.try_recv() {
             let chunk = chunk;
             self.chunk_map.insert(coord.clone(), chunk);
             self.queued_chunks.remove(&coord);
@@ -221,28 +223,45 @@ impl ChunkLoader {
             y: (y as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
             z: (z as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
         };
-        self.chunk_map
+        match self.chunk_map
             .get(&chunk_coord)
-            .as_ref()
-            .unwrap()
-            .get_block((
-                (x - chunk_coord.x) as usize,
-                (y - chunk_coord.y) as usize,
-                (z - chunk_coord.z) as usize,
-            ))
+            .as_ref() {
+                None => None,
+                Some(block) => {
+                    block.get_block((
+                        (x - chunk_coord.x) as usize,
+                        (y - chunk_coord.y) as usize,
+                        (z - chunk_coord.z) as usize,
+                    ))
+                }
+            }
+            
     }
 
-    pub fn render<U>(
+    pub fn get_chunk(&self, (i, j, k): (i32, i32, i32)) -> Option<&Chunk> {
+        let chunk_coord = ChunkCoord {
+            x: (i as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
+            y: (j as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
+            z: (k as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
+        };
+
+        self.chunk_map.get(&chunk_coord)
+    }
+
+    pub fn render(
         &self,
         player: &crate::player::Player,
         target: &mut glium::Frame,
         program: &glium::Program,
-        uniforms: &U,
+        view: [[f32;4];4], 
+        perspective: [[f32;4];4], 
+        u_light: [f32;3], 
+        diffuse_tex: &glium::texture::SrgbTexture2d, 
+        normal_tex: &glium::texture::Texture2d,
         params: &glium::DrawParameters,
-    ) where
-        U: glium::uniforms::Uniforms,
+    )
     {
-        for (_, chunk_mesh) in &self.mesh_map {
+        for (chunk_coord, chunk_mesh) in &self.mesh_map {
             let mesh = chunk_mesh.get_mesh();
             match mesh {
                 None => (),
@@ -250,7 +269,7 @@ impl ChunkLoader {
                     mesh,
                     chunk_mesh.get_indices().as_ref().unwrap(),
                     program,
-                    uniforms,
+                    &uniform! {view: view, perspective: perspective, u_light: u_light, diffuse_tex: diffuse_tex, normal_tex: normal_tex, chunk_coords: [(chunk_coord.x as i32 * CHUNK_SIZE.0 as i32) as f32, (chunk_coord.y as i32 * CHUNK_SIZE.1 as i32) as f32, (chunk_coord.z as i32 * CHUNK_SIZE.2 as i32) as f32]},
                     params,
                 ) {
                     Ok(_) => (),

@@ -32,7 +32,6 @@ struct System {
 fn main() {
     let mut sys = init();
 
-
     let image = image::load(
         Cursor::new(&include_bytes!("../res/diffuse.jpg")),
         image::ImageFormat::Jpeg,
@@ -181,8 +180,8 @@ fn main() {
         
                 let perspective = player.get_camera().perspective(&target);
         
-                chunk_loader.render(&player, &mut target, &program, &uniform! { model: MODEL, view: player.get_camera().view_matrix(), perspective: perspective,
-                    u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map }, &params);
+                chunk_loader.render(&player, &mut target, &program, player.get_camera().view_matrix(),  perspective,
+                   light, &diffuse_texture, &normal_map, &params);
 
                 let draw_data = ui.render();
                 sys.renderer
@@ -288,10 +287,3 @@ fn init() -> System {
 
     System { event_loop, display, imgui, platform, renderer }
 }
-
-const MODEL: [[f32;4];4] = [
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 0.0],
-    [0.0, 0.0, 0.0, 1.0f32]
-];

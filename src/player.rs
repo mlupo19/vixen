@@ -13,6 +13,7 @@ pub struct Player {
 
     pub lin_speed: f32,
     pub rot_speed: f32,
+    pub jump_power: f32,
     falling: bool,
     pub camera: camera::Camera,
 }
@@ -22,6 +23,7 @@ impl Player {
         (x, y, z): (f32, f32, f32),
         lin_speed: f32,
         rot_speed: f32,
+        jump_power: f32,
         camera: camera::Camera,
     ) -> Player {
         Player {
@@ -31,6 +33,7 @@ impl Player {
             velocity: (0.0,0.0,0.0),
             lin_speed,
             rot_speed,
+            jump_power,
             falling: true,
             camera,
         }
@@ -57,15 +60,22 @@ impl Player {
         // Change to gravity once chunks are implemented
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::Space) {
             if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::LShift) {
-                self.y -= self.lin_speed * delta;
+                self.y -= self.jump_power * delta;
             } else {
-                self.y += self.lin_speed * delta;
+                self.y += self.jump_power * delta;
             }
         }
 
-        if self.falling {
+        // if let Some (block) = loader.get_block((self.x.floor() as i32, self.y.floor() as i32, self.z.floor() as i32)) {
+        //     if block.id != 0 {
+        //         self.falling = false;
+        //         self.velocity.1 = 0.0;
+        //     }
+        // }
+
+        //if self.falling && loader.get_chunk((self.x.floor() as f32 / crate::chunk::CHUNK_SIZE.0 as f32) as i32, self.y.floor() as i32 / crate::chunk::CHUNK_SIZE.1 as i32, self.z.floor() as i32 / crate::chunk::CHUNK_SIZE.2 as i32)).is_some() {
             //self.velocity.1 -= 10.0 * delta;
-        }
+        //}
 
         self.x += self.velocity.0 * delta;
         self.y += self.velocity.1 * delta;
@@ -98,6 +108,7 @@ impl Default for Player {
             velocity: (0.0,0.0,0.0),
             lin_speed: 10.0,
             rot_speed: 1.0,
+            jump_power: 10.0,
             falling: true,
             camera: camera::Camera {
                 x: 0.0,
