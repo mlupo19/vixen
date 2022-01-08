@@ -41,7 +41,7 @@ pub struct ChunkLoader {
     load_distance: u16,
     render_distance: u16,
     rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
-    q: multiqueue::MPMCSender<ChunkCoord>,
+    chunk_q: multiqueue::MPMCSender<ChunkCoord>,
     pool: scoped_threadpool::Pool,
 
     updated_chunks: Vec<ChunkCoord>,
@@ -60,7 +60,7 @@ impl ChunkLoader {
         let generator = crate::terrain::TerrainGenerator::new(seed);
 
         // Multithreaded queue for sending coordinates of chunks that need to be loaded to worker threads
-        let (q, q_rec): (
+        let (chunk_q, chunk_q_rec): (
             multiqueue::MPMCSender<ChunkCoord>,
             multiqueue::MPMCReceiver<ChunkCoord>,
         ) = multiqueue::mpmc_queue(
@@ -70,15 +70,15 @@ impl ChunkLoader {
         // Channel for sending loaded chunk back to main thread
         let (tx, rx) = std::sync::mpsc::channel();
 
-        // Threadpool for loading chunks
+        // Threads for loading chunks
         for _ in 0..7 {
             let tx = tx.clone();
-            let q_rec = q_rec.clone();
+            let chunk_q_rec = chunk_q_rec.clone();
             let generator = generator.clone();
 
             std::thread::spawn(move || loop {
                 // Receive coordinate of chunk to be loaded
-                let chunk_coord_res = q_rec.recv();
+                let chunk_coord_res = chunk_q_rec.recv();
 
                 match chunk_coord_res {
                     Ok(chunk_coord) => {
@@ -108,7 +108,7 @@ impl ChunkLoader {
             load_distance,
             render_distance,
             rx,
-            q,
+            chunk_q,
             pool: scoped_threadpool::Pool::new(7),
 
             updated_chunks: Vec::with_capacity(
@@ -144,7 +144,7 @@ impl ChunkLoader {
                     match &self.chunk_map.get(&chunk_coord) {
                         None => match self.queued_chunks.get(&chunk_coord) {
                             // Queue chunk to be loaded
-                            None => match self.q.try_send(chunk_coord.clone()) {
+                            None => match self.chunk_q.try_send(chunk_coord.clone()) {
                                 Ok(_) => {
                                     to_update = true;
                                 }
