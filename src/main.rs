@@ -3,21 +3,21 @@ extern crate glium;
 
 mod camera;
 mod chunk;
+mod chunk_mesh;
+mod clipboard;
 mod input;
 mod loader;
 mod player;
 mod terrain;
-mod chunk_mesh;
-mod clipboard;
 
 use std::io::Cursor;
 
+use imgui::*;
 use imgui::{Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
-use imgui::*;
 
-use glium::glutin::event::{Event, WindowEvent, VirtualKeyCode};
+use glium::glutin::event::{Event, VirtualKeyCode, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::{glutin, Surface};
 
@@ -64,7 +64,6 @@ fn main() {
         glium::Program::from_source(&sys.display, &vertex_shader_src, &fragment_shader_src, None)
             .unwrap();
 
-
     let mut chunk_loader = loader::ChunkLoader::new(0);
     let mut input = input::Input::new();
     let mut player = player::Player::default();
@@ -75,7 +74,6 @@ fn main() {
     }
     sys.display.gl_window().window().set_cursor_visible(false);
 
-
     // EVENT LOOP
 
     let mut last_frame = std::time::Instant::now();
@@ -83,15 +81,14 @@ fn main() {
     let mut frames = 0;
     let mut last_q_sec = last_frame;
     let mut fps: f64 = 0.0;
-    
-    sys.event_loop.run(move |event, _, control_flow| {
 
-        match event {
+    sys.event_loop
+        .run(move |event, _, control_flow| match event {
             Event::WindowEvent { ref event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                     return;
-                },
+                }
                 _ => return,
             },
             Event::NewEvents(cause) => {
@@ -102,34 +99,39 @@ fn main() {
                 }
                 let now = std::time::Instant::now();
                 sys.imgui.io_mut().update_delta_time(now - last_frame);
-            },
+            }
             Event::MainEventsCleared => {
                 let now = std::time::Instant::now();
                 let delta = (now - last_tick).as_secs_f32();
                 last_tick = now;
 
                 if input.is_key_released(&VirtualKeyCode::LAlt) {
-        
                     let (uwidth, uheight) = sys.display.get_framebuffer_dimensions();
-        
-                    player.get_camera_mut().yaw -= input.get_mouse_delta_x() as f32 * delta * player.rot_speed;
-                    player.get_camera_mut().pitch += input.get_mouse_delta_y() as f32 * delta * player.rot_speed;
-        
+
+                    player.get_camera_mut().yaw -=
+                        input.get_mouse_delta_x() as f32 * delta * player.rot_speed;
+                    player.get_camera_mut().pitch +=
+                        input.get_mouse_delta_y() as f32 * delta * player.rot_speed;
+
                     player.get_camera_mut().pitch = player.get_camera().pitch.min(3.141592);
                     player.get_camera_mut().pitch = player.get_camera().pitch.max(0.0);
-        
-                    match sys.display.gl_window().window().set_cursor_position(glium::glutin::dpi::PhysicalPosition { x: (uwidth/2), y: (uheight/2) }) {
+
+                    match sys.display.gl_window().window().set_cursor_position(
+                        glium::glutin::dpi::PhysicalPosition {
+                            x: (uwidth / 2),
+                            y: (uheight / 2),
+                        },
+                    ) {
                         Ok(_) => (),
                         Err(e) => println!("Error: {}", e),
                     }
 
                     input.update_mouse((0.0, 0.0));
                 }
-        
+
                 chunk_loader.update(&player, &sys.display);
                 player.update(delta, &input, &chunk_loader);
 
-                
                 let gl_window = sys.display.gl_window();
                 sys.platform
                     .prepare_frame(sys.imgui.io_mut(), gl_window.window())
@@ -142,7 +144,7 @@ fn main() {
                 let delta = delta_duration.as_secs_f32();
                 last_frame = now;
                 let since_q_sec = (now - last_q_sec).as_secs_f64();
-                
+
                 if frames > 1 && since_q_sec > 0.25 {
                     last_q_sec = now;
                     fps = frames as f64 / since_q_sec;
@@ -161,27 +163,34 @@ fn main() {
                     *control_flow = ControlFlow::Exit;
                 }
 
-
                 let mut target = sys.display.draw();
                 target.clear_color_and_depth((0.2, 0.5, 0.8, 1.0), 1.0);
-                
+
                 let light = [1.4, 0.4, 0.7f32];
-        
+
                 let params = glium::DrawParameters {
                     depth: glium::Depth {
                         test: glium::draw_parameters::DepthTest::IfLess,
                         write: true,
-                        .. Default::default()
+                        ..Default::default()
                     },
                     backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
                     multisampling: true,
-                    .. Default::default()
+                    ..Default::default()
                 };
-        
+
                 let perspective = player.get_camera().perspective(&target);
-        
-                chunk_loader.render(&player, &mut target, &program, player.get_camera().view_matrix(),  perspective,
-                   light, &diffuse_texture, &normal_map, &params);
+
+                chunk_loader.render(
+                    &mut target,
+                    &program,
+                    player.get_camera().view_matrix(),
+                    perspective,
+                    light,
+                    &diffuse_texture,
+                    &normal_map,
+                    &params,
+                );
 
                 let draw_data = ui.render();
                 sys.renderer
@@ -191,56 +200,55 @@ fn main() {
 
                 frames += 1;
             }
-            Event::DeviceEvent { device_id:_, ref event } => 
-                match event {
-                    glutin::event::DeviceEvent::Key(key) => {
-                        input.process_event(key.state, key.virtual_keycode.unwrap());
-                        match key.virtual_keycode.as_ref().unwrap() {
-                            VirtualKeyCode::Escape => {
-                                *control_flow = ControlFlow::Exit;
-                                return;
-                            },
-                            VirtualKeyCode::LAlt => {
-                                match key.state {
-                                    glutin::event::ElementState::Pressed => {
-                                        match sys.display.gl_window().window().set_cursor_grab(false) {
-                                            Ok(_) => (),
-                                            Err(e) => println!("Error: {}", e),
-                                        }
-                                        sys.display.gl_window().window().set_cursor_visible(true);
-                                    },
-                                    glutin::event::ElementState::Released => {
-                                        match sys.display.gl_window().window().set_cursor_grab(true) {
-                                            Ok(_) => (),
-                                            Err(e) => println!("Error: {}", e),
-                                        }
-                                        sys.display.gl_window().window().set_cursor_visible(false);
-                                    },
-                                }
-                            },
-                            _ => (),
+            Event::DeviceEvent {
+                device_id: _,
+                ref event,
+            } => match event {
+                glutin::event::DeviceEvent::Key(key) => {
+                    input.process_event(key.state, key.virtual_keycode.unwrap());
+                    match key.virtual_keycode.as_ref().unwrap() {
+                        VirtualKeyCode::Escape => {
+                            *control_flow = ControlFlow::Exit;
+                            return;
                         }
-                    },
-                    glutin::event::DeviceEvent::MouseMotion{delta} => {
-                        input.update_mouse(*delta);
+                        VirtualKeyCode::LAlt => match key.state {
+                            glutin::event::ElementState::Pressed => {
+                                match sys.display.gl_window().window().set_cursor_grab(false) {
+                                    Ok(_) => (),
+                                    Err(e) => println!("Error: {}", e),
+                                }
+                                sys.display.gl_window().window().set_cursor_visible(true);
+                            }
+                            glutin::event::ElementState::Released => {
+                                match sys.display.gl_window().window().set_cursor_grab(true) {
+                                    Ok(_) => (),
+                                    Err(e) => println!("Error: {}", e),
+                                }
+                                sys.display.gl_window().window().set_cursor_visible(false);
+                            }
+                        },
+                        _ => (),
                     }
-                    _ => (),
-                },
+                }
+                glutin::event::DeviceEvent::MouseMotion { delta } => {
+                    input.update_mouse(*delta);
+                }
+                _ => (),
+            },
             _ => (),
-        }
-    });
+        });
 }
 
 fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64) {
-    let window = Window::new("FPS");
+    let window = Window::new("FPS")
+        .resizable(true)
+        .size_constraints([250.0, 100.0], [250.0, 100.0]);
     let tok = window.begin(ui).unwrap();
-    ui.text(format!("{}", fps));
-    ui.dummy([100.0,50.0]);
+    ui.text(format!("   {}", fps));
     tok.end();
 }
 
 fn init() -> System {
-
     let event_loop = EventLoop::new();
     let wb = glutin::window::WindowBuilder::new()
         .with_title("Vixen")
@@ -249,7 +257,9 @@ fn init() -> System {
             height: 1080,
         })
         .with_position(glium::glutin::dpi::PhysicalPosition { x: 0, y: 0 });
-    let cb = glutin::ContextBuilder::new().with_depth_buffer(24).with_multisampling(16);
+    let cb = glutin::ContextBuilder::new()
+        .with_depth_buffer(24)
+        .with_multisampling(16);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
     // IMGUI
@@ -271,19 +281,23 @@ fn init() -> System {
     }
 
     let hidpi_factor = platform.hidpi_factor();
-    let font_size = (13.0 * hidpi_factor) as f32;
-    imgui.fonts().add_font(&[
-        FontSource::DefaultFontData {
-            config: Some(FontConfig {
-                size_pixels: font_size,
-                ..FontConfig::default()
-            }),
-        },
-    ]);
+    let font_size = (15.0 * hidpi_factor) as f32;
+    imgui.fonts().add_font(&[FontSource::DefaultFontData {
+        config: Some(FontConfig {
+            size_pixels: font_size,
+            ..FontConfig::default()
+        }),
+    }]);
 
     imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
     let renderer = Renderer::init(&mut imgui, &display).expect("Failed to initialize renderer");
 
-    System { event_loop, display, imgui, platform, renderer }
+    System {
+        event_loop,
+        display,
+        imgui,
+        platform,
+        renderer,
+    }
 }

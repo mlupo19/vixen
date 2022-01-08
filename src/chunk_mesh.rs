@@ -6,7 +6,10 @@ pub struct ChunkMesh {
 }
 
 impl ChunkMesh {
-    pub fn new(mesh: Option<glium::VertexBuffer<Vertex>>, indices: Option<glium::IndexBuffer<u16>>) -> Self {
+    pub fn new(
+        mesh: Option<glium::VertexBuffer<Vertex>>,
+        indices: Option<glium::IndexBuffer<u16>>,
+    ) -> Self {
         ChunkMesh {
             mesh: mesh,
             indices: indices,

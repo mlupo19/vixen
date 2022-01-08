@@ -72,14 +72,14 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn empty(position: (i32, i32, i32)) -> Chunk {
+    pub fn empty() -> Chunk {
         Chunk {
             block_data: None,
             needs_update: false,
         }
     }
 
-    pub fn new(position: (i32, i32, i32)) -> Chunk {
+    pub fn new() -> Chunk {
         Chunk {
             block_data: None,
             needs_update: true,
@@ -101,24 +101,21 @@ impl Chunk {
 
         for c in 0..4 {
             let (fx, fy, fz) = face.points.get(c).unwrap();
-            let point_in_chunk_space = (
-                i as i32 + fx,
-                j as i32 + fy,
-                k as i32 + fz,
-            );
+            let point_in_chunk_space = (i as i32 + fx, j as i32 + fy, k as i32 + fz);
             mesh_face_index_loc[c] = vertices.len() as usize;
 
             vertices.push(Vertex {
-                position: 
-                    (point_in_chunk_space.0 as u32) |
-                    (point_in_chunk_space.1 as u32) << 6 |
-                    (point_in_chunk_space.2 as u32) << 12 | 
-                    (face.normal.0 as u32) << 18 |
-                    (face.normal.1 as u32) << 19 |
-                    (face.normal.2 as u32) << 20
-                ,
+                position: (point_in_chunk_space.0 as u32)
+                    | (point_in_chunk_space.1 as u32) << 6
+                    | (point_in_chunk_space.2 as u32) << 12
+                    | (face.normal.0 as u32) << 18
+                    | (face.normal.1 as u32) << 19
+                    | (face.normal.2 as u32) << 20,
                 tex_coords: match face.face_id {
-                    0 | 1 | 2 | 3 | 4 | 5 | _ => (TEX_COORDS[c][0] * 1000.0) as u32 | ((TEX_COORDS[c][1] * 1000.0) as u32) << 16,
+                    0 | 1 | 2 | 3 | 4 | 5 | _ => {
+                        (TEX_COORDS[c][0] * 1000.0) as u32
+                            | ((TEX_COORDS[c][1] * 1000.0) as u32) << 16
+                    }
                 },
             });
         }
@@ -138,8 +135,15 @@ impl Chunk {
             Option<&Chunk>,
             Option<&Chunk>,
         ),
-    ) -> Option<(Vec::<Vertex>, Vec::<u16>)> {
-        if !self.needs_update || neighbors.0.is_none() || neighbors.1.is_none() || neighbors.2.is_none() || neighbors.3.is_none() || neighbors.4.is_none() || neighbors.5.is_none() {
+    ) -> Option<(Vec<Vertex>, Vec<u16>)> {
+        if !self.needs_update
+            || neighbors.0.is_none()
+            || neighbors.1.is_none()
+            || neighbors.2.is_none()
+            || neighbors.3.is_none()
+            || neighbors.4.is_none()
+            || neighbors.5.is_none()
+        {
             return None;
         }
 
@@ -392,18 +396,21 @@ impl Chunk {
         match self.block_data {
             None => self.block_data = Some(Box::new(ndarray::Array3::default(CHUNK_SIZE))),
             Some(_) => {
-                if self.block_data.as_ref().unwrap()[[i,j,k]] != block {
+                if self.block_data.as_ref().unwrap()[[i, j, k]] != block {
                     self.needs_update = true;
                 }
-            },
+            }
         }
-        
+
         self.block_data.as_mut().unwrap()[[i, j, k]] = block;
     }
 
     pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<&Block> {
         match &self.block_data {
-            None => None,
+            None => Some(&Block {
+                id: 0,
+                health: 0.0,
+            }),
             Some(data) => data.get((i, j, k)),
         }
     }
@@ -426,5 +433,9 @@ impl Chunk {
 
     pub fn needs_update(&self) -> bool {
         self.needs_update
+    }
+
+    pub fn request_update(&mut self) {
+        self.needs_update = true;
     }
 }

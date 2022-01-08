@@ -20,3 +20,6 @@ scoped_threadpool = "0.1.9"
 version = "0.8.2"
 features = ["winit-25"]
 default-features = true
+
+[profile.dev]
+opt-level = 0

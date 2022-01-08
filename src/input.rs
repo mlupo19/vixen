@@ -45,7 +45,7 @@ impl Input {
 
     pub fn update_mouse(&mut self, delta: (f64, f64)) {
         self.mouse_delta = delta;
-    } 
+    }
 
     pub fn get_mouse_delta_x(&self) -> f64 {
         self.mouse_delta.0
