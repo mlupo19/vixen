@@ -40,6 +40,7 @@ pub struct ChunkLoader {
     queued_chunks: std::collections::HashSet<ChunkCoord>,
     load_distance: u16,
     render_distance: u16,
+    simulation_distance: u16,
     rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
     chunk_q: multiqueue::MPMCSender<ChunkCoord>,
     pool: scoped_threadpool::Pool,
@@ -54,8 +55,9 @@ impl ChunkLoader {
     /// Creates a new chunk loader with world seed
     pub fn new(seed: u32) -> Self {
         // Distances
-        let load_distance = 6;
-        let render_distance = 3;
+        let render_distance = 4;
+        let load_distance = render_distance + 1;
+        let simulation_distance = 4;
 
         let generator = crate::terrain::TerrainGenerator::new(seed);
 
@@ -107,6 +109,7 @@ impl ChunkLoader {
             queued_chunks: std::collections::HashSet::new(),
             load_distance,
             render_distance,
+            simulation_distance,
             rx,
             chunk_q,
             pool: scoped_threadpool::Pool::new(7),
@@ -164,7 +167,7 @@ impl ChunkLoader {
         }
 
         // Receive loaded chunk from worker
-        if let Ok((coord, chunk)) = self.rx.try_recv() {
+        while let Ok((coord, chunk)) = self.rx.try_recv() {
             let chunk = chunk;
             self.chunk_map.insert(coord.clone(), chunk);
             self.queued_chunks.remove(&coord);
@@ -260,7 +263,7 @@ impl ChunkLoader {
     }
 
     /// Returns block data based on coordinate (world space). Returns none if block is in unloaded chunk
-    pub fn get_block(&self, (x, y, z): (i32, i32, i32)) -> Option<&Block> {
+    pub fn get_block(&self, [x, y, z]: [i32;3]) -> Option<&Block> {
         let chunk_coord = ChunkCoord {
             x: (x as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
             y: (y as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
@@ -269,9 +272,9 @@ impl ChunkLoader {
         match self.chunk_map.get(&chunk_coord).as_ref() {
             None => None,
             Some(block) => block.get_block((
-                (x - chunk_coord.x) as usize,
-                (y - chunk_coord.y) as usize,
-                (z - chunk_coord.z) as usize,
+                (x - chunk_coord.x * CHUNK_SIZE.0 as i32) as usize,
+                (y - chunk_coord.y * CHUNK_SIZE.1 as i32) as usize,
+                (z - chunk_coord.z * CHUNK_SIZE.2 as i32) as usize,
             )),
         }
     }

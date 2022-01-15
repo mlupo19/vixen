@@ -1,8 +1,14 @@
+use std::mem::MaybeUninit;
+
 use crate::camera;
 use crate::input;
 use crate::loader;
 
 use glium::glutin;
+
+use parry3d::bounding_volume::AABB;
+use parry3d::bounding_volume::BoundingVolume;
+use parry3d::na::Point3;
 
 pub struct Player {
     pub x: f32,
@@ -45,49 +51,43 @@ impl Player {
         keyboard_state: &input::Input,
         loader: &loader::ChunkLoader,
     ) {
+        let mut step = (0.0, 0.0, 0.0);
+
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
-            self.z += self.lin_speed * delta * self.camera.yaw.sin();
-            self.x += self.lin_speed * delta * self.camera.yaw.cos();
+            step.2 += self.lin_speed * self.camera.yaw.sin() * delta;
+            step.0 += self.lin_speed * self.camera.yaw.cos() * delta;
         }
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::S) {
-            self.z -= self.lin_speed * delta * self.camera.yaw.sin();
-            self.x -= self.lin_speed * delta * self.camera.yaw.cos();
+            step.2 -= self.lin_speed * self.camera.yaw.sin() * delta;
+            step.0 -= self.lin_speed * self.camera.yaw.cos() * delta;
         }
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::A) {
-            self.z += self.lin_speed * delta * self.camera.yaw.cos();
-            self.x -= self.lin_speed * delta * self.camera.yaw.sin();
+            step.2 += self.lin_speed * self.camera.yaw.cos() * delta;
+            step.0 -= self.lin_speed * self.camera.yaw.sin() * delta;
         }
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::D) {
-            self.z -= self.lin_speed * delta * self.camera.yaw.cos();
-            self.x += self.lin_speed * delta * self.camera.yaw.sin();
+            step.2 -= self.lin_speed * self.camera.yaw.cos() * delta;
+            step.0 += self.lin_speed * self.camera.yaw.sin() * delta;
         }
 
-        // Change to gravity once chunks are implemented
         if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::Space) {
-            if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::LShift) {
-                self.y -= self.jump_power * delta;
-            } else {
-                self.y += self.jump_power * delta;
-            }
+            self.velocity.1 = self.jump_power;
         }
 
-        // if let Some (block) = loader.get_block((self.x.floor() as i32, self.y.floor() as i32, self.z.floor() as i32)) {
-        //     if block.id != 0 {
-        //         self.falling = false;
-        //         self.velocity.1 = 0.0;
-        //     }
-        // }
+        self.velocity.1 -= 9.81 * delta;
 
-        //if self.falling && loader.get_chunk((self.x.floor() as f32 / crate::chunk::CHUNK_SIZE.0 as f32) as i32, self.y.floor() as i32 / crate::chunk::CHUNK_SIZE.1 as i32, self.z.floor() as i32 / crate::chunk::CHUNK_SIZE.2 as i32)).is_some() {
-        //self.velocity.1 -= 10.0 * delta;
-        //}
+        step.0 += self.velocity.0 * delta;
+        step.1 += self.velocity.1 * delta;
+        step.2 += self.velocity.2 * delta;
 
-        self.x += self.velocity.0 * delta;
-        self.y += self.velocity.1 * delta;
-        self.z += self.velocity.2 * delta;
+        step = self.collide(delta, loader, step);
+
+        self.x += step.0;
+        self.y += step.1;
+        self.z += step.2;
 
         self.camera.x = self.x;
-        self.camera.y = self.y + 2.0;
+        self.camera.y = self.y + 1.5;
         self.camera.z = self.z;
     }
 
@@ -99,7 +99,53 @@ impl Player {
         &mut self.camera
     }
 
-    fn collide(&mut self, loader: &loader::ChunkLoader) {}
+    fn collide(&mut self, delta: f32, loader: &loader::ChunkLoader, (dx, dy, dz): (f32, f32, f32)) -> (f32, f32, f32) {
+        let (mut dx, mut dy, mut dz) = (dx, dy, dz);
+        let (nx, ny, nz) = (self.x + dx, self.y + dy, self.z + dz);
+
+        let player_box_current = create_player_aabb((self.x, self.y, self.z), (self.x, self.y, self.z));
+        let player_box_stepped = create_player_aabb((self.x.min(nx), self.y.min(ny), self.z.min(nz)), (self.x.max(nx), self.y.max(ny), self.z.max(nz)));
+        
+        for x in (nx.floor() as i32 - 1)..(nx.floor() as i32 + 2) {
+            for y in (ny.floor() as i32 - 1)..(ny.floor() as i32 + 3) {
+                for z in (nz.floor() as i32 - 1)..(nz.floor() as i32 + 2) {
+                    // TODO: remove this branch
+                    //if (x,y,z) != (nx.floor() as i32, ny.floor() as i32, nz.floor() as i32) && (x,y,z) != (nx.floor() as i32, ny.floor() as i32 + 1, nz.floor() as i32) {
+                        match loader.get_block([x,y,z]) {
+                            None => (),
+                            Some(block) if block.id != 0 => {
+                                let block_aabb = AABB::new(Point3::new(x as f32,y as f32,z as f32), Point3::new((x+1) as f32, (y+1) as f32, (z+1) as f32));
+                                if player_box_stepped.intersects(&block_aabb) && !player_box_current.intersects(&block_aabb) {
+                                    
+                                    let x_box = create_player_aabb((self.x.min(nx), self.y, self.z), (self.x.max(nx), self.y, self.z));
+                                    let y_box = create_player_aabb((self.x, self.y.min(ny), self.z), (self.x, self.y.max(ny), self.z));
+                                    let z_box = create_player_aabb((self.x, self.y, self.z.min(nz)), (self.x, self.y, self.z.max(nz)));
+
+                                    if x_box.intersects(&block_aabb) {
+                                        self.velocity.0 = 0.0;
+                                        dx = 0.0;
+                                    }
+
+                                    if y_box.intersects(&block_aabb) {
+                                        self.velocity.1 = 0.0;
+                                        dy = 0.0;
+                                    }
+
+                                    if z_box.intersects(&block_aabb) {
+                                        self.velocity.2 = 0.0;
+                                        dz = 0.0;
+                                    }
+                                }
+                            }
+                            _ => (),
+                        }
+                    //}
+                }
+            }
+        }
+
+        (dx, dy, dz)
+    }
 }
 
 impl Default for Player {
@@ -115,12 +161,21 @@ impl Default for Player {
             falling: true,
             camera: camera::Camera {
                 x: 0.0,
-                y: 10.0,
-                z: 0.0,
+                y: 0.0,
+                z: -20.0,
                 pitch: 3.141592 / 2.0,
                 yaw: 3.141592 / 2.0,
                 roll: 0.0,
             },
         }
     }
+}
+
+const HALF_WIDTH: f32 = 0.25;
+const HEIGHT: f32 = 1.5;
+const HALF_DEPTH: f32 = 0.25;
+
+#[inline]
+fn create_player_aabb((x_min,y_min,z_min): (f32, f32, f32), (x_max,y_max,z_max): (f32, f32, f32)) -> AABB {
+    AABB::new(Point3::new(x_min-HALF_WIDTH, y_min, z_min-HALF_DEPTH), Point3::new(x_max+HALF_WIDTH, y_max+HEIGHT, z_max+HALF_DEPTH))
 }

@@ -17,7 +17,7 @@ use imgui::{Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 
-use glium::glutin::event::{Event, VirtualKeyCode, WindowEvent};
+use glium::glutin::event::{Event, VirtualKeyCode, WindowEvent, ElementState::*};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::{glutin, Surface};
 
@@ -212,14 +212,14 @@ fn main() {
                             return;
                         }
                         VirtualKeyCode::LAlt => match key.state {
-                            glutin::event::ElementState::Pressed => {
+                            Pressed => {
                                 match sys.display.gl_window().window().set_cursor_grab(false) {
                                     Ok(_) => (),
                                     Err(e) => println!("Error: {}", e),
                                 }
                                 sys.display.gl_window().window().set_cursor_visible(true);
                             }
-                            glutin::event::ElementState::Released => {
+                            Released => {
                                 match sys.display.gl_window().window().set_cursor_grab(true) {
                                     Ok(_) => (),
                                     Err(e) => println!("Error: {}", e),
