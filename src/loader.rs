@@ -3,6 +3,9 @@ use crate::chunk_mesh::*;
 use crate::player;
 use glium::Surface;
 
+use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet};
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 struct ChunkCoord {
     x: i32,
@@ -35,15 +38,17 @@ impl ChunkCoord {
 }
 
 pub struct ChunkLoader {
-    chunk_map: std::collections::HashMap<ChunkCoord, Chunk>,
-    mesh_map: std::collections::HashMap<ChunkCoord, ChunkMesh>,
-    queued_chunks: std::collections::HashSet<ChunkCoord>,
+    chunk_map: HashMap<ChunkCoord, Arc<RwLock<Chunk>>>,
+    mesh_map: HashMap<ChunkCoord, ChunkMesh>,
+    queued_chunks: HashSet<ChunkCoord>,
+    queued_meshes: HashSet<ChunkCoord>,
     load_distance: u16,
     render_distance: u16,
     simulation_distance: u16,
-    rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
+    chunk_rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
     chunk_q: multiqueue::MPMCSender<ChunkCoord>,
-    pool: scoped_threadpool::Pool,
+    mesh_rx: std::sync::mpsc::Receiver<(ChunkCoord, (Vec<Vertex>, Vec<u16>))>,
+    mesh_q: multiqueue::MPMCSender<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
 
     updated_chunks: Vec<ChunkCoord>,
     needs_build: Vec<(ChunkCoord, (Vec<Vertex>, Vec<u16>))>,
@@ -54,8 +59,9 @@ impl ChunkLoader {
 
     /// Creates a new chunk loader with world seed
     pub fn new(seed: u32) -> Self {
+
         // Distances
-        let render_distance = 4;
+        let render_distance = 10;
         let load_distance = render_distance + 1;
         let simulation_distance = 4;
 
@@ -69,12 +75,23 @@ impl ChunkLoader {
             (load_distance * load_distance * load_distance) as u64 * 12 * 100,
         );
 
+        // Multithreaded queue for sending chunk data that need to be loaded to worker threads for building meshes
+        let (mesh_q, mesh_q_rec): (
+            multiqueue::MPMCSender<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
+            multiqueue::MPMCReceiver<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
+        ) = multiqueue::mpmc_queue(
+            (render_distance * render_distance * render_distance) as u64 * (12 + 8 + 48) * 100,
+        );
+
         // Channel for sending loaded chunk back to main thread
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (chunk_tx, chunk_rx) = std::sync::mpsc::channel();
+
+        // Channel for sending meshes back to main thread
+        let (mesh_tx, mesh_rx) = std::sync::mpsc::channel();
 
         // Threads for loading chunks
-        for _ in 0..7 {
-            let tx = tx.clone();
+        for _ in 0..4 {
+            let tx = chunk_tx.clone();
             let chunk_q_rec = chunk_q_rec.clone();
             let generator = generator.clone();
 
@@ -103,16 +120,38 @@ impl ChunkLoader {
             });
         }
 
+        // Threads for loading meshes
+        for _ in 0..4 {
+            let tx = mesh_tx.clone();
+            let mesh_q_rec = mesh_q_rec.clone();
+
+            std::thread::spawn(move || loop {
+                // Receive data for generating mesh
+                 if let Ok((coord, chunk, neighbors)) =  mesh_q_rec.recv() {
+                    // Generate mesh data
+                    let mesh_data = chunk.read().unwrap().gen_mesh((neighbors.0, neighbors.1, neighbors.2, neighbors.3, neighbors.4, neighbors.5));
+                    match tx.send((coord, mesh_data)) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            println!("Error sending mesh data to main thread: {}", e);
+                        }
+                    }
+                };
+            });
+        }
+
         ChunkLoader {
-            chunk_map: std::collections::HashMap::new(),
-            mesh_map: std::collections::HashMap::new(),
-            queued_chunks: std::collections::HashSet::new(),
+            chunk_map: HashMap::new(),
+            mesh_map: HashMap::new(),
+            queued_chunks: HashSet::new(),
+            queued_meshes: HashSet::new(),
             load_distance,
             render_distance,
             simulation_distance,
-            rx,
+            chunk_rx,
             chunk_q,
-            pool: scoped_threadpool::Pool::new(7),
+            mesh_rx,
+            mesh_q,
 
             updated_chunks: Vec::with_capacity(
                 (12 * load_distance * load_distance * load_distance) as usize,
@@ -167,50 +206,87 @@ impl ChunkLoader {
         }
 
         // Receive loaded chunk from worker
-        while let Ok((coord, chunk)) = self.rx.try_recv() {
+        while let Ok((coord, chunk)) = self.chunk_rx.try_recv() {
             let chunk = chunk;
-            self.chunk_map.insert(coord.clone(), chunk);
+            self.chunk_map.insert(coord.clone(), Arc::new(RwLock::new(chunk)));
             self.queued_chunks.remove(&coord);
         }
 
         // Check loaded chunks if they are in render distance and if their meshes are loaded.
         // If not, add them to list of meshes to be generated
         for (coord, chunk) in &mut self.chunk_map {
-            if !chunk.is_empty() && in_distance(&player, coord, self.render_distance) {
-                match self.mesh_map.get(&coord) {
-                    None => {
-                        chunk.request_update();
-                        self.to_generate.push(coord.clone());
-                    }
-                    Some(_) => {
-                        if chunk.needs_update() {
+            if let Ok(ref mut chunk) = chunk.write() {
+                if !chunk.is_empty() && in_distance(&player, coord, self.render_distance) {
+                    match self.mesh_map.get(&coord) {
+                        None => {
+                            chunk.request_update();
                             self.to_generate.push(coord.clone());
+                        }
+                        Some(_) => {
+                            if chunk.needs_update() {
+                                self.to_generate.push(coord.clone());
+                            }
                         }
                     }
                 }
+            } else {
+                println!("Acquiring lock failed");
             }
         }
 
-        // Use scoped threadpool to generate mesh data
-        self.pool.scoped(|scope| {
-            scope.execute(|| {
-                for coord in &self.to_generate {
-                    let neighbors = (
-                        self.chunk_map.get(&coord.dx(1)),
-                        self.chunk_map.get(&coord.dx(-1)),
-                        self.chunk_map.get(&coord.dy(-1)),
-                        self.chunk_map.get(&coord.dy(1)),
-                        self.chunk_map.get(&coord.dz(1)),
-                        self.chunk_map.get(&coord.dz(-1)),
+        for coord in &self.to_generate {
+            let mut to_update = false;
+            match self.queued_meshes.get(coord) {
+                None => {
+                    let neighbors = NeighborChunks(
+                        match self.chunk_map.get(&coord.dx(1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
+                        match self.chunk_map.get(&coord.dx(-1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
+                        match self.chunk_map.get(&coord.dy(-1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
+                        match self.chunk_map.get(&coord.dy(1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
+                        match self.chunk_map.get(&coord.dz(1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
+                        match self.chunk_map.get(&coord.dz(-1)) {
+                            None => continue,
+                            Some(chunk) => chunk.clone(),
+                        },
                     );
 
-                    if let Some(vertices) = self.chunk_map.get(&coord).unwrap().gen_mesh(neighbors)
-                    {
-                        self.needs_build.push((coord.clone(), vertices));
+                    match self.mesh_q.try_send((coord.clone(), self.chunk_map.get(coord).unwrap().clone(), neighbors)) {
+                        Ok(_) => {
+                            to_update = true;
+                        },
+                        Err(e) => {
+                            println!("Error sending chunk data for mesh generation to workers: {}", e);
+                        }
                     }
                 }
-            });
-        });
+                Some(_) => {
+
+                }
+            }
+            if to_update {
+                self.queued_meshes.insert(coord.clone());
+            }
+        }
+
+        while let Ok((coord, mesh_data)) = self.mesh_rx.try_recv() {
+            self.queued_meshes.remove(&coord);
+            self.needs_build.push((coord.clone(), mesh_data));
+        }
 
         // Build meshes from mesh data and insert them into mesh map
         for (coord, vertices) in &self.needs_build {
@@ -241,7 +317,7 @@ impl ChunkLoader {
 
         // Mark all chunks that needed their meshes built/rebuilt as updated
         for chunk_coord in &self.updated_chunks {
-            self.chunk_map.get_mut(&chunk_coord).unwrap().set_updated();
+            self.chunk_map.get_mut(&chunk_coord).unwrap().write().unwrap().set_updated();
         }
 
         // Unload meshes out of render distance
@@ -263,15 +339,15 @@ impl ChunkLoader {
     }
 
     /// Returns block data based on coordinate (world space). Returns none if block is in unloaded chunk
-    pub fn get_block(&self, [x, y, z]: [i32;3]) -> Option<&Block> {
+    pub fn get_block(&self, [x, y, z]: [i32;3]) -> Option<Block> {
         let chunk_coord = ChunkCoord {
             x: (x as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
             y: (y as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
             z: (z as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
         };
-        match self.chunk_map.get(&chunk_coord).as_ref() {
+        match self.chunk_map.get(&chunk_coord) {
             None => None,
-            Some(block) => block.get_block((
+            Some(chunk) => chunk.read().unwrap().get_block((
                 (x - chunk_coord.x * CHUNK_SIZE.0 as i32) as usize,
                 (y - chunk_coord.y * CHUNK_SIZE.1 as i32) as usize,
                 (z - chunk_coord.z * CHUNK_SIZE.2 as i32) as usize,
@@ -280,14 +356,17 @@ impl ChunkLoader {
     }
 
     /// Returns chunk data based on coordinate (chunk space). Returns none if chunk is not loaded
-    pub fn get_chunk(&self, (i, j, k): (i32, i32, i32)) -> Option<&Chunk> {
+    pub fn get_chunk(&self, (i, j, k): (i32, i32, i32)) -> Option<Arc<RwLock<Chunk>>> {
         let chunk_coord = ChunkCoord {
             x: (i as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
             y: (j as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
             z: (k as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
         };
 
-        self.chunk_map.get(&chunk_coord)
+        match self.chunk_map.get(&chunk_coord) {
+            None => None,
+            Some(chunk) => Some(chunk.clone())
+        }
     }
 
     /// Renders chunk meshes
@@ -332,3 +411,5 @@ fn in_distance(player: &player::Player, coord: &ChunkCoord, distance: u16) -> bo
                 && ((player.z as i32 - (coord.z * CHUNK_SIZE.2 as i32)) / CHUNK_SIZE.2 as i32).abs()
                     <= distance as i32
 }
+
+pub struct NeighborChunks(Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>);

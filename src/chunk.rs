@@ -1,5 +1,7 @@
 use crate::chunk_mesh::*;
 
+use std::sync::{Arc, RwLock};
+
 pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
 #[derive(Clone, Default, Debug, PartialEq)]
@@ -128,25 +130,14 @@ impl Chunk {
     pub fn gen_mesh(
         &self,
         neighbors: (
-            Option<&Chunk>,
-            Option<&Chunk>,
-            Option<&Chunk>,
-            Option<&Chunk>,
-            Option<&Chunk>,
-            Option<&Chunk>,
+            Arc<RwLock<Chunk>>,
+            Arc<RwLock<Chunk>>,
+            Arc<RwLock<Chunk>>,
+            Arc<RwLock<Chunk>>,
+            Arc<RwLock<Chunk>>,
+            Arc<RwLock<Chunk>>,
         ),
-    ) -> Option<(Vec<Vertex>, Vec<u16>)> {
-        if !self.needs_update
-            || neighbors.0.is_none()
-            || neighbors.1.is_none()
-            || neighbors.2.is_none()
-            || neighbors.3.is_none()
-            || neighbors.4.is_none()
-            || neighbors.5.is_none()
-        {
-            return None;
-        }
-
+    ) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = vec![];
         let mut indices = vec![];
 
@@ -170,18 +161,16 @@ impl Chunk {
                         {
                             // Check neighbor chunk if block is on edge
                             if i == CHUNK_SIZE.0 - 1 {
-                                if neighbors.0.is_some()
-                                    && (neighbors.0.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .0
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((0, j, k))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.0.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((0, j, k))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -207,18 +196,16 @@ impl Chunk {
                                 == 0
                         {
                             if i == 0 {
-                                if neighbors.1.is_some()
-                                    && (neighbors.1.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .1
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((CHUNK_SIZE.0 - 1, j, k))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.1.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((CHUNK_SIZE.0 - 1, j, k))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -244,18 +231,16 @@ impl Chunk {
                                 == 0
                         {
                             if j == 0 {
-                                if neighbors.2.is_some()
-                                    && (neighbors.2.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .2
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((i, CHUNK_SIZE.1 - 1, k))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.2.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((i, CHUNK_SIZE.1 - 1, k))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -286,18 +271,16 @@ impl Chunk {
                                 == 0
                         {
                             if j == CHUNK_SIZE.1 - 1 {
-                                if neighbors.3.is_some()
-                                    && (neighbors.3.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .3
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((i, 0, k))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.3.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((i, 0, k))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -323,18 +306,16 @@ impl Chunk {
                                 == 0
                         {
                             if k == CHUNK_SIZE.2 - 1 {
-                                if neighbors.4.is_some()
-                                    && (neighbors.4.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .4
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((i, j, 0))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.4.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((i, j, 0))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -360,18 +341,16 @@ impl Chunk {
                                 == 0
                         {
                             if k == 0 {
-                                if neighbors.5.is_some()
-                                    && (neighbors.5.unwrap().block_data.is_none()
-                                        || neighbors
-                                            .5
-                                            .unwrap()
-                                            .block_data
-                                            .as_ref()
-                                            .unwrap()
-                                            .get((i, j, CHUNK_SIZE.2 - 1))
-                                            .unwrap_or(&Block { id: 0, health: 0.0 })
-                                            .id
-                                            == 0)
+                                let neighbor = neighbors.5.read().unwrap();
+                                if neighbor.block_data.is_none()
+                                    || neighbor
+                                        .block_data
+                                        .as_ref()
+                                        .unwrap()
+                                        .get((i, j, CHUNK_SIZE.2 - 1))
+                                        .unwrap_or(&Block { id: 0, health: 0.0 })
+                                        .id
+                                        == 0
                                 {
                                     self.add_face(
                                         &mut vertices,
@@ -389,7 +368,7 @@ impl Chunk {
             }
         }
 
-        Some((vertices, indices))
+        (vertices, indices)
     }
 
     pub fn set_block(&mut self, (i, j, k): (usize, usize, usize), block: Block) {
@@ -405,13 +384,17 @@ impl Chunk {
         self.block_data.as_mut().unwrap()[[i, j, k]] = block;
     }
 
-    pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<&Block> {
+    pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<Block> {
         match &self.block_data {
-            None => Some(&Block {
+            None => Some(Block {
                 id: 0,
                 health: 0.0,
             }),
-            Some(data) => data.get((i, j, k)),
+            Some(data) => 
+            match data.get((i, j, k)) {
+                None => None,
+                Some(block) => Some(block.clone()),
+            }
         }
     }
 

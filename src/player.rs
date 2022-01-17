@@ -109,37 +109,34 @@ impl Player {
         for x in (nx.floor() as i32 - 1)..(nx.floor() as i32 + 2) {
             for y in (ny.floor() as i32 - 1)..(ny.floor() as i32 + 3) {
                 for z in (nz.floor() as i32 - 1)..(nz.floor() as i32 + 2) {
-                    // TODO: remove this branch
-                    //if (x,y,z) != (nx.floor() as i32, ny.floor() as i32, nz.floor() as i32) && (x,y,z) != (nx.floor() as i32, ny.floor() as i32 + 1, nz.floor() as i32) {
-                        match loader.get_block([x,y,z]) {
-                            None => (),
-                            Some(block) if block.id != 0 => {
-                                let block_aabb = AABB::new(Point3::new(x as f32,y as f32,z as f32), Point3::new((x+1) as f32, (y+1) as f32, (z+1) as f32));
-                                if player_box_stepped.intersects(&block_aabb) && !player_box_current.intersects(&block_aabb) {
-                                    
-                                    let x_box = create_player_aabb((self.x.min(nx), self.y, self.z), (self.x.max(nx), self.y, self.z));
-                                    let y_box = create_player_aabb((self.x, self.y.min(ny), self.z), (self.x, self.y.max(ny), self.z));
-                                    let z_box = create_player_aabb((self.x, self.y, self.z.min(nz)), (self.x, self.y, self.z.max(nz)));
+                    match loader.get_block([x,y,z]) {
+                        None => (),
+                        Some(block) if block.id != 0 => {
+                            let block_aabb = AABB::new(Point3::new(x as f32,y as f32,z as f32), Point3::new((x+1) as f32, (y+1) as f32, (z+1) as f32));
+                            if player_box_stepped.intersects(&block_aabb) && !player_box_current.intersects(&block_aabb) {
+                                
+                                let x_box = create_player_aabb((self.x.min(nx), self.y, self.z), (self.x.max(nx), self.y, self.z));
+                                let y_box = create_player_aabb((self.x, self.y.min(ny), self.z), (self.x, self.y.max(ny), self.z));
+                                let z_box = create_player_aabb((self.x, self.y, self.z.min(nz)), (self.x, self.y, self.z.max(nz)));
 
-                                    if x_box.intersects(&block_aabb) {
-                                        self.velocity.0 = 0.0;
-                                        dx = 0.0;
-                                    }
+                                if x_box.intersects(&block_aabb) {
+                                    self.velocity.0 = 0.0;
+                                    dx = 0.0;
+                                }
 
-                                    if y_box.intersects(&block_aabb) {
-                                        self.velocity.1 = 0.0;
-                                        dy = 0.0;
-                                    }
+                                if y_box.intersects(&block_aabb) {
+                                    self.velocity.1 = 0.0;
+                                    dy = 0.0;
+                                }
 
-                                    if z_box.intersects(&block_aabb) {
-                                        self.velocity.2 = 0.0;
-                                        dz = 0.0;
-                                    }
+                                if z_box.intersects(&block_aabb) {
+                                    self.velocity.2 = 0.0;
+                                    dz = 0.0;
                                 }
                             }
-                            _ => (),
                         }
-                    //}
+                        _ => (),
+                    }
                 }
             }
         }
@@ -161,8 +158,8 @@ impl Default for Player {
             falling: true,
             camera: camera::Camera {
                 x: 0.0,
-                y: 0.0,
-                z: -20.0,
+                y: 100.0,
+                z: 0.0,
                 pitch: 3.141592 / 2.0,
                 yaw: 3.141592 / 2.0,
                 roll: 0.0,
