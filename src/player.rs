@@ -110,7 +110,10 @@ impl Player {
             for y in (ny.floor() as i32 - 1)..(ny.floor() as i32 + 3) {
                 for z in (nz.floor() as i32 - 1)..(nz.floor() as i32 + 2) {
                     match loader.get_block([x,y,z]) {
-                        None => (),
+                        None => {
+                            self.velocity.1 = 0.0;
+                            dy = 0.0;
+                        },
                         Some(block) if block.id != 0 => {
                             let block_aabb = AABB::new(Point3::new(x as f32,y as f32,z as f32), Point3::new((x+1) as f32, (y+1) as f32, (z+1) as f32));
                             if player_box_stepped.intersects(&block_aabb) && !player_box_current.intersects(&block_aabb) {
@@ -161,7 +164,7 @@ impl Default for Player {
                 y: 100.0,
                 z: 0.0,
                 pitch: 3.141592 / 2.0,
-                yaw: 3.141592 / 2.0,
+                yaw: 0.0,
                 roll: 0.0,
             },
         }

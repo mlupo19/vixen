@@ -1,14 +1,14 @@
 use crate::chunk::*;
 
 pub struct ChunkMesh {
-    mesh: Option<glium::VertexBuffer<Vertex>>,
-    indices: Option<glium::IndexBuffer<u16>>,
+    mesh: glium::VertexBuffer<Vertex>,
+    indices: glium::IndexBuffer<u16>,
 }
 
 impl ChunkMesh {
     pub fn new(
-        mesh: Option<glium::VertexBuffer<Vertex>>,
-        indices: Option<glium::IndexBuffer<u16>>,
+        mesh: glium::VertexBuffer<Vertex>,
+        indices: glium::IndexBuffer<u16>,
     ) -> Self {
         ChunkMesh {
             mesh: mesh,
@@ -16,11 +16,11 @@ impl ChunkMesh {
         }
     }
 
-    pub fn get_mesh(&self) -> &Option<glium::VertexBuffer<Vertex>> {
+    pub fn get_mesh(&self) -> &glium::VertexBuffer<Vertex> {
         &self.mesh
     }
 
-    pub fn get_indices(&self) -> &Option<glium::IndexBuffer<u16>> {
+    pub fn get_indices(&self) -> &glium::IndexBuffer<u16> {
         &self.indices
     }
 }

@@ -11,6 +11,7 @@ mod player;
 mod terrain;
 
 use std::io::Cursor;
+use std::ops::Mul;
 
 use imgui::*;
 use imgui::{Context, FontConfig, FontSource, Ui};
@@ -179,13 +180,12 @@ fn main() {
                     ..Default::default()
                 };
 
-                let perspective = player.get_camera().perspective(&target);
+                let perspective =  nalgebra::Matrix4::from(player.get_camera().perspective(&target));
 
                 chunk_loader.render(
                     &mut target,
                     &program,
-                    player.get_camera().view_matrix(),
-                    perspective,
+                    perspective.mul(nalgebra::Matrix4::from(player.get_camera().view_matrix())).into(),
                     light,
                     &diffuse_texture,
                     &normal_map,

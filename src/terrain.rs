@@ -69,7 +69,7 @@ impl TerrainGenerator {
         let mut amp = 1.0;
 
         for _ in 0..octaves {
-            result += self.noise.get([x as f64, y as f64]) * amp;
+            result += self.noise.get([x as f64, y as f64, 0.0]) * amp;
             x *= 2.0;
             y *= 2.0;
             amp /= 2.0;
