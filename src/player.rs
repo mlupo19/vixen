@@ -74,7 +74,7 @@ impl Player {
             self.velocity.1 = self.jump_power;
         }
 
-        self.velocity.1 -= 9.81 * delta;
+        self.velocity.1 -= 20.0 * delta;
 
         step.0 += self.velocity.0 * delta;
         step.1 += self.velocity.1 * delta;
@@ -156,8 +156,8 @@ impl Default for Player {
             z: 0.0,
             velocity: (0.0, 0.0, 0.0),
             lin_speed: 10.0,
-            rot_speed: 1.0,
-            jump_power: 10.0,
+            rot_speed: 0.75,
+            jump_power: 8.0,
             falling: true,
             camera: camera::Camera {
                 x: 0.0,

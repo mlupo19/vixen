@@ -165,9 +165,9 @@ fn main() {
                 }
 
                 let mut target = sys.display.draw();
-                target.clear_color_and_depth((0.2, 0.5, 0.8, 1.0), 1.0);
+                target.clear_color_and_depth((0.2, 0.6, 0.9, 1.0), 1.0);
 
-                let light = [1.4, 0.4, 0.7f32];
+                let light = [-0.2, -0.85, 0.5f32];
 
                 let params = glium::DrawParameters {
                     depth: glium::Depth {
