@@ -9,6 +9,10 @@ mod input;
 mod loader;
 mod player;
 mod terrain;
+mod shaders;
+
+use player::Player;
+use shaders::{load_shader};
 
 use std::io::Cursor;
 use std::ops::Mul;
@@ -56,14 +60,7 @@ fn main() {
         glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
     let normal_map = glium::texture::Texture2d::new(&sys.display, image).unwrap();
 
-    let vertex_shader_src =
-        std::fs::read_to_string("src/shaders/vertex.glsl").expect("Unable to read vertex.glsl");
-    let fragment_shader_src =
-        std::fs::read_to_string("src/shaders/frag.glsl").expect("Unable to read frag.glsl");
-
-    let program =
-        glium::Program::from_source(&sys.display, &vertex_shader_src, &fragment_shader_src, None)
-            .unwrap();
+    let diffuse = load_shader("diffuse", &sys.display);
 
     let mut chunk_loader = loader::ChunkLoader::new(0);
     let mut input = input::Input::new();
@@ -85,10 +82,13 @@ fn main() {
 
     sys.event_loop
         .run(move |event, _, control_flow| match event {
-            Event::WindowEvent { ref event, .. } => match event {
+            Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                     return;
+                }
+                WindowEvent::MouseInput { button, state, .. } => {
+                    input.update_mouse_button(button, state);
                 }
                 _ => return,
             },
@@ -127,7 +127,7 @@ fn main() {
                         Err(e) => println!("Error: {}", e),
                     }
 
-                    input.update_mouse((0.0, 0.0));
+                    input.update_mouse_motion((0.0, 0.0));
                 }
 
                 chunk_loader.update(&player, &sys.display);
@@ -159,7 +159,7 @@ fn main() {
                 let mut ui = sys.imgui.frame();
 
                 let mut run = true;
-                run_ui(&mut run, &mut ui, fps);
+                run_ui(&mut run, &mut ui, fps, delta, &chunk_loader,&player);
                 if !run {
                     *control_flow = ControlFlow::Exit;
                 }
@@ -184,7 +184,7 @@ fn main() {
 
                 chunk_loader.render(
                     &mut target,
-                    &program,
+                    &diffuse,
                     perspective.mul(nalgebra::Matrix4::from(player.get_camera().view_matrix())).into(),
                     light,
                     &diffuse_texture,
@@ -205,7 +205,7 @@ fn main() {
                 ref event,
             } => match event {
                 glutin::event::DeviceEvent::Key(key) => {
-                    input.process_event(key.state, key.virtual_keycode.unwrap());
+                    input.process_keyboard_event(key.state, key.virtual_keycode.unwrap());
                     match key.virtual_keycode.as_ref().unwrap() {
                         VirtualKeyCode::Escape => {
                             *control_flow = ControlFlow::Exit;
@@ -231,20 +231,30 @@ fn main() {
                     }
                 }
                 glutin::event::DeviceEvent::MouseMotion { delta } => {
-                    input.update_mouse(*delta);
+                    input.update_mouse_motion(*delta);
                 }
                 _ => (),
             },
-            _ => (),
+            event => {
+                let gl_window = sys.display.gl_window();
+                sys.platform.handle_event(sys.imgui.io_mut(), gl_window.window(), &event);
+            },
         });
 }
 
-fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64) {
-    let window = Window::new("FPS")
+fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64, delta: f32, loader: &loader::ChunkLoader, player: &Player) {
+    let window = Window::new("Stats")
         .resizable(true)
-        .size_constraints([250.0, 100.0], [250.0, 100.0]);
+        .size_constraints([250.0, 100.0], [600.0, 300.0]);
     let tok = window.begin(ui).unwrap();
-    ui.text(format!("   {}", fps));
+    ui.text(format!("Avg FPS: {}", fps));
+    ui.text(format!("FPS: {}", 1.0 / delta));
+    ui.text(format!("Avg delta (ms): {}", 1000.0 / fps));
+    ui.text(format!("Delta (ms): {}", delta * 1000.0));
+    ui.new_line();
+    ui.text(format!("Player: ({:.3}, {:.3}, {:.3})", player.x, player.y, player.z));
+    ui.text(format!("Number of chunks loaded: {}", loader.get_number_of_loaded_chunks()));
+    ui.text(format!("Number of meshes loaded: {}", loader.get_number_of_loaded_meshes()));
     tok.end();
 }
 
@@ -281,7 +291,7 @@ fn init() -> System {
     }
 
     let hidpi_factor = platform.hidpi_factor();
-    let font_size = (15.0 * hidpi_factor) as f32;
+    let font_size = (12.0 * hidpi_factor) as f32;
     imgui.fonts().add_font(&[FontSource::DefaultFontData {
         config: Some(FontConfig {
             size_pixels: font_size,

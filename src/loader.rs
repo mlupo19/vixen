@@ -59,9 +59,11 @@ impl ChunkLoader {
     /// Creates a new chunk loader with world seed
     pub fn new(seed: u32) -> Self {
 
-        // Distances
+        // Distance from camera that chunks are rendered (number of chunks)
         let render_distance = 10;
+        // Distance from camera that chunks are generated/loaded
         let load_distance = render_distance + 1;
+        // Distance from camera that AI and physics are updated
         let simulation_distance = 4;
 
         let generator = crate::terrain::TerrainGenerator::new(seed);
@@ -129,6 +131,8 @@ impl ChunkLoader {
                  if let Ok((coord, chunk, neighbors)) =  mesh_q_rec.recv() {
                     // Generate mesh data
                     let mesh_data = chunk.read().unwrap().gen_mesh((neighbors.0, neighbors.1, neighbors.2, neighbors.3, neighbors.4, neighbors.5));
+
+                    // Send mesh data to main thread
                     match tx.send((coord, mesh_data)) {
                         Ok(_) => (),
                         Err(e) => {
@@ -225,6 +229,7 @@ impl ChunkLoader {
             }
         }
 
+        // Find neighbor chunks and send chunk data and neighbors' chunk data to worker thread for mesh building
         for coord in &self.to_generate {
             match self.queued_meshes.get(coord) {
                 None => {
@@ -270,6 +275,7 @@ impl ChunkLoader {
             }
         }
 
+        // Receive mesh data from worker threads
         while let Ok((coord, mesh_data)) = self.mesh_rx.try_recv() {
             self.queued_meshes.remove(&coord);
             self.needs_build.push((coord.clone(), mesh_data));
@@ -377,6 +383,16 @@ impl ChunkLoader {
                 }
             }
         }
+    }
+
+    /// Returns the number of loaded chunks
+    pub fn get_number_of_loaded_chunks(&self) -> usize {
+        self.chunk_map.len()
+    }
+
+    /// Returns the number of loaded meshes
+    pub fn get_number_of_loaded_meshes(&self) -> usize {
+        self.mesh_map.len()
     }
 }
 

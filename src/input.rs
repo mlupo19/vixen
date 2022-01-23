@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
-use glium::glutin::event::{ElementState, VirtualKeyCode};
+use glium::glutin::event::{ElementState, VirtualKeyCode, MouseButton};
 
 /// Keeps track of which keys have been pressed.
 pub struct Input {
     state: HashMap<VirtualKeyCode, ElementState>,
+    mouse_button_state: HashMap<MouseButton, ElementState>,
     mouse_delta: (f64, f64),
 }
 impl Input {
@@ -12,6 +13,7 @@ impl Input {
     pub fn new() -> Input {
         Input {
             state: HashMap::new(),
+            mouse_button_state: HashMap::new(),
             mouse_delta: (0.0, 0.0),
         }
     }
@@ -32,7 +34,7 @@ impl Input {
     }
 
     /// Processes a keyboard event and updated the internal state.
-    pub fn process_event(&mut self, key_state: ElementState, code: VirtualKeyCode) {
+    pub fn process_keyboard_event(&mut self, key_state: ElementState, code: VirtualKeyCode) {
         match key_state {
             ElementState::Pressed => {
                 self.state.insert(code, key_state);
@@ -43,7 +45,21 @@ impl Input {
         }
     }
 
-    pub fn update_mouse(&mut self, delta: (f64, f64)) {
+    /// Returns true if 'button' is pressed for any device
+    pub fn is_mouse_button_pressed(&self, button: &MouseButton) -> bool {
+        self.mouse_button_state.get(button).map(|&s| s == ElementState::Pressed).unwrap_or(false)
+    }
+
+    /// Returns false if 'button' is released from all devices
+    pub fn is_mouse_button_released(&self, button: &MouseButton) -> bool {
+        !self.is_mouse_button_pressed(button)
+    }
+
+    pub fn update_mouse_button(&mut self, button: MouseButton, state: ElementState) {
+        self.mouse_button_state.insert(button, state);
+    }
+
+    pub fn update_mouse_motion(&mut self, delta: (f64, f64)) {
         self.mouse_delta = delta;
     }
 

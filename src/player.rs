@@ -1,4 +1,5 @@
 use std::mem::MaybeUninit;
+use std::ops::Add;
 
 use crate::camera;
 use crate::input;
@@ -6,6 +7,7 @@ use crate::loader;
 
 use glium::glutin;
 
+use nalgebra::ComplexField;
 use parry3d::bounding_volume::AABB;
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::na::Point3;
@@ -48,30 +50,41 @@ impl Player {
     pub fn update(
         &mut self,
         delta: f32,
-        keyboard_state: &input::Input,
+        input: &input::Input,
         loader: &loader::ChunkLoader,
     ) {
         let mut step = (0.0, 0.0, 0.0);
 
-        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
+        if input.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
             step.2 += self.lin_speed * self.camera.yaw.sin() * delta;
             step.0 += self.lin_speed * self.camera.yaw.cos() * delta;
         }
-        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::S) {
+        if input.is_key_pressed(&glutin::event::VirtualKeyCode::S) {
             step.2 -= self.lin_speed * self.camera.yaw.sin() * delta;
             step.0 -= self.lin_speed * self.camera.yaw.cos() * delta;
         }
-        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::A) {
+        if input.is_key_pressed(&glutin::event::VirtualKeyCode::A) {
             step.2 += self.lin_speed * self.camera.yaw.cos() * delta;
             step.0 -= self.lin_speed * self.camera.yaw.sin() * delta;
         }
-        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::D) {
+        if input.is_key_pressed(&glutin::event::VirtualKeyCode::D) {
             step.2 -= self.lin_speed * self.camera.yaw.cos() * delta;
             step.0 += self.lin_speed * self.camera.yaw.sin() * delta;
         }
 
-        if keyboard_state.is_key_pressed(&glutin::event::VirtualKeyCode::Space) {
+        if input.is_key_pressed(&glutin::event::VirtualKeyCode::Space) && !self.falling {
             self.velocity.1 = self.jump_power;
+            self.falling = true;
+        }
+
+        // Check if player is trying to mine
+        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Left) {
+
+        }
+
+        // Check if player is trying to build
+        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {
+
         }
 
         self.velocity.1 -= 20.0 * delta;
@@ -130,6 +143,7 @@ impl Player {
                                 if y_box.intersects(&block_aabb) {
                                     self.velocity.1 = 0.0;
                                     dy = 0.0;
+                                    self.falling = false;
                                 }
 
                                 if z_box.intersects(&block_aabb) {
