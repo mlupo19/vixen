@@ -1,13 +1,9 @@
-use std::mem::MaybeUninit;
-use std::ops::Add;
-
 use crate::camera;
 use crate::input;
 use crate::loader;
 
 use glium::glutin;
 
-use nalgebra::ComplexField;
 use parry3d::bounding_volume::AABB;
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::na::Point3;

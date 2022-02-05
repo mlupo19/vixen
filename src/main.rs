@@ -12,7 +12,7 @@ mod terrain;
 mod shaders;
 
 use player::Player;
-use shaders::{load_shader};
+use shaders::load_shader;
 
 use std::io::Cursor;
 use std::ops::Mul;
@@ -287,7 +287,7 @@ fn init() -> System {
     {
         let gl_window = display.gl_window();
         let window = gl_window.window();
-        platform.attach_window(imgui.io_mut(), window, HiDpiMode::Rounded);
+        platform.attach_window(imgui.io_mut(), window, HiDpiMode::Default);
     }
 
     let hidpi_factor = platform.hidpi_factor();

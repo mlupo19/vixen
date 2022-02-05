@@ -138,8 +138,8 @@ impl Chunk {
             Arc<RwLock<Chunk>>,
         ),
     ) -> (Vec<Vertex>, Vec<u16>) {
-        let mut vertices = vec![];
-        let mut indices = vec![];
+        let mut vertices = Vec::with_capacity(CHUNK_SIZE.0 * CHUNK_SIZE.1 * CHUNK_SIZE.2);
+        let mut indices = Vec::with_capacity(CHUNK_SIZE.0 * CHUNK_SIZE.1 * CHUNK_SIZE.2 * 3);
 
         for i in 0..CHUNK_SIZE.0 {
             for j in 0..CHUNK_SIZE.1 {
