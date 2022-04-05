@@ -4,8 +4,8 @@ use crate::loader;
 
 use glium::glutin;
 
-use parry3d::bounding_volume::AABB;
 use parry3d::bounding_volume::BoundingVolume;
+use parry3d::bounding_volume::AABB;
 use parry3d::na::Point3;
 
 pub struct Player {
@@ -43,12 +43,7 @@ impl Player {
         }
     }
 
-    pub fn update(
-        &mut self,
-        delta: f32,
-        input: &input::Input,
-        loader: &loader::ChunkLoader,
-    ) {
+    pub fn update(&mut self, delta: f32, input: &input::Input, loader: &loader::ChunkLoader) {
         let mut step = (0.0, 0.0, 0.0);
 
         if input.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
@@ -75,13 +70,12 @@ impl Player {
 
         // Check if player is trying to mine
         if input.is_mouse_button_pressed(&glutin::event::MouseButton::Left) {
-
+            let mut ray_dir = [0.0, 0.0, -1.0, 0.0];
+            //nalgebra::try_invert_to(self.camera.projection, ray_dir);
         }
 
         // Check if player is trying to build
-        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {
-
-        }
+        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {}
 
         self.velocity.1 -= 20.0 * delta;
 
@@ -108,28 +102,50 @@ impl Player {
         &mut self.camera
     }
 
-    fn collide(&mut self, delta: f32, loader: &loader::ChunkLoader, (dx, dy, dz): (f32, f32, f32)) -> (f32, f32, f32) {
+    fn collide(
+        &mut self,
+        delta: f32,
+        loader: &loader::ChunkLoader,
+        (dx, dy, dz): (f32, f32, f32),
+    ) -> (f32, f32, f32) {
         let (mut dx, mut dy, mut dz) = (dx, dy, dz);
         let (nx, ny, nz) = (self.x + dx, self.y + dy, self.z + dz);
 
-        let player_box_current = create_player_aabb((self.x, self.y, self.z), (self.x, self.y, self.z));
-        let player_box_stepped = create_player_aabb((self.x.min(nx), self.y.min(ny), self.z.min(nz)), (self.x.max(nx), self.y.max(ny), self.z.max(nz)));
-        
+        let player_box_current =
+            create_player_aabb((self.x, self.y, self.z), (self.x, self.y, self.z));
+        let player_box_stepped = create_player_aabb(
+            (self.x.min(nx), self.y.min(ny), self.z.min(nz)),
+            (self.x.max(nx), self.y.max(ny), self.z.max(nz)),
+        );
+
         for x in (nx.floor() as i32 - 1)..(nx.floor() as i32 + 2) {
             for y in (ny.floor() as i32 - 1)..(ny.floor() as i32 + 3) {
                 for z in (nz.floor() as i32 - 1)..(nz.floor() as i32 + 2) {
-                    match loader.get_block([x,y,z]) {
+                    match loader.get_block([x, y, z]) {
                         None => {
                             self.velocity.1 = 0.0;
                             dy = 0.0;
-                        },
+                        }
                         Some(block) if block.id != 0 => {
-                            let block_aabb = AABB::new(Point3::new(x as f32,y as f32,z as f32), Point3::new((x+1) as f32, (y+1) as f32, (z+1) as f32));
-                            if player_box_stepped.intersects(&block_aabb) && !player_box_current.intersects(&block_aabb) {
-                                
-                                let x_box = create_player_aabb((self.x.min(nx), self.y, self.z), (self.x.max(nx), self.y, self.z));
-                                let y_box = create_player_aabb((self.x, self.y.min(ny), self.z), (self.x, self.y.max(ny), self.z));
-                                let z_box = create_player_aabb((self.x, self.y, self.z.min(nz)), (self.x, self.y, self.z.max(nz)));
+                            let block_aabb = AABB::new(
+                                Point3::new(x as f32, y as f32, z as f32),
+                                Point3::new((x + 1) as f32, (y + 1) as f32, (z + 1) as f32),
+                            );
+                            if player_box_stepped.intersects(&block_aabb)
+                                && !player_box_current.intersects(&block_aabb)
+                            {
+                                let x_box = create_player_aabb(
+                                    (self.x.min(nx), self.y, self.z),
+                                    (self.x.max(nx), self.y, self.z),
+                                );
+                                let y_box = create_player_aabb(
+                                    (self.x, self.y.min(ny), self.z),
+                                    (self.x, self.y.max(ny), self.z),
+                                );
+                                let z_box = create_player_aabb(
+                                    (self.x, self.y, self.z.min(nz)),
+                                    (self.x, self.y, self.z.max(nz)),
+                                );
 
                                 if x_box.intersects(&block_aabb) {
                                     self.velocity.0 = 0.0;
@@ -176,6 +192,7 @@ impl Default for Player {
                 pitch: 3.141592 / 2.0,
                 yaw: 0.0,
                 roll: 0.0,
+                projection: [[0.0; 4]; 4],
             },
         }
     }
@@ -186,6 +203,12 @@ const HEIGHT: f32 = 1.5;
 const HALF_DEPTH: f32 = 0.25;
 
 #[inline]
-fn create_player_aabb((x_min,y_min,z_min): (f32, f32, f32), (x_max,y_max,z_max): (f32, f32, f32)) -> AABB {
-    AABB::new(Point3::new(x_min-HALF_WIDTH, y_min, z_min-HALF_DEPTH), Point3::new(x_max+HALF_WIDTH, y_max+HEIGHT, z_max+HALF_DEPTH))
+fn create_player_aabb(
+    (x_min, y_min, z_min): (f32, f32, f32),
+    (x_max, y_max, z_max): (f32, f32, f32),
+) -> AABB {
+    AABB::new(
+        Point3::new(x_min - HALF_WIDTH, y_min, z_min - HALF_DEPTH),
+        Point3::new(x_max + HALF_WIDTH, y_max + HEIGHT, z_max + HALF_DEPTH),
+    )
 }

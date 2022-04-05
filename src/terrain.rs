@@ -4,6 +4,7 @@ use noise::NoiseFn;
 use noise::Seedable;
 
 use crate::chunk::*;
+use crate::loader::ChunkCoord;
 
 #[derive(Clone)]
 pub struct TerrainGenerator {
@@ -13,6 +14,7 @@ pub struct TerrainGenerator {
 }
 
 impl TerrainGenerator {
+    /// Create a new Terrain Generator with a non-negative seed
     pub fn new(seed: u32) -> TerrainGenerator {
         let noise = noise::Perlin::new().set_seed(seed);
         TerrainGenerator {
@@ -22,8 +24,9 @@ impl TerrainGenerator {
         }
     }
 
+    /// Generate chunk at coord (x,y,z) in chunk space
     pub fn generate_chunk(&self, (x, y, z): (i32, i32, i32)) -> Chunk {
-        let mut out = Chunk::new();
+        let mut out = Chunk::new(ChunkCoord { x, y, z });
 
         if y > 4 || y < -4 {
             return out;
@@ -49,7 +52,12 @@ impl TerrainGenerator {
             for j in 0..CHUNK_SIZE.1 {
                 for k in 0..CHUNK_SIZE.2 {
                     if heights[(i, k)] > (j as i32 + y * CHUNK_SIZE.1 as i32) {
-                        out.set_block((i, j, k), Block::new(1, 5.0));
+                        let id = if heights[(i,k)] == (j as i32 + y * CHUNK_SIZE.1 as i32) + 1 {
+                            1
+                        } else {
+                            2
+                        };
+                        out.set_block((i, j, k), Block::new(id, 5.0));
                     }
                 }
             }

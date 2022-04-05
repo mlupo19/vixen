@@ -5,16 +5,17 @@ mod camera;
 mod chunk;
 mod chunk_mesh;
 mod clipboard;
+mod file_util;
 mod input;
 mod loader;
 mod player;
-mod terrain;
 mod shaders;
+mod terrain;
+mod texture;
 
 use player::Player;
 use shaders::load_shader;
 
-use std::io::Cursor;
 use std::ops::Mul;
 
 use imgui::*;
@@ -22,7 +23,7 @@ use imgui::{Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 
-use glium::glutin::event::{Event, VirtualKeyCode, WindowEvent, ElementState::*};
+use glium::glutin::event::{ElementState::*, Event, VirtualKeyCode, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::{glutin, Surface};
 
@@ -37,32 +38,11 @@ struct System {
 fn main() {
     let mut sys = init();
 
-    let image = image::load(
-        Cursor::new(&include_bytes!("../res/diffuse.jpg")),
-        image::ImageFormat::Jpeg,
-    )
-    .unwrap()
-    .to_rgba8();
-
-    let image_dimensions = image.dimensions();
-    let image =
-        glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-    let diffuse_texture = glium::texture::SrgbTexture2d::new(&sys.display, image).unwrap();
-
-    let image = image::load(
-        Cursor::new(&include_bytes!("../res/normal.png")),
-        image::ImageFormat::Png,
-    )
-    .unwrap()
-    .to_rgba8();
-    let image_dimensions = image.dimensions();
-    let image =
-        glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-    let normal_map = glium::texture::Texture2d::new(&sys.display, image).unwrap();
-
     let diffuse = load_shader("diffuse", &sys.display);
 
-    let mut chunk_loader = loader::ChunkLoader::new(0);
+    let texture_map = texture::load_texture_map("res/map2.png", None, &sys.display);
+
+    let mut chunk_loader = loader::ChunkLoader::new(0, texture_map);
     let mut input = input::Input::new();
     let mut player = player::Player::default();
 
@@ -159,7 +139,7 @@ fn main() {
                 let mut ui = sys.imgui.frame();
 
                 let mut run = true;
-                run_ui(&mut run, &mut ui, fps, delta, &chunk_loader,&player);
+                run_ui(&mut run, &mut ui, fps, delta, &chunk_loader, &player);
                 if !run {
                     *control_flow = ControlFlow::Exit;
                 }
@@ -180,15 +160,16 @@ fn main() {
                     ..Default::default()
                 };
 
-                let perspective =  nalgebra::Matrix4::from(player.get_camera().perspective(&target));
+                let perspective =
+                    nalgebra::Matrix4::from(player.get_camera_mut().calculate_projection(&target));
 
                 chunk_loader.render(
                     &mut target,
                     &diffuse,
-                    perspective.mul(nalgebra::Matrix4::from(player.get_camera().view_matrix())).into(),
+                    perspective
+                        .mul(nalgebra::Matrix4::from(player.get_camera().view_matrix()))
+                        .into(),
                     light,
-                    &diffuse_texture,
-                    &normal_map,
                     &params,
                 );
 
@@ -237,12 +218,20 @@ fn main() {
             },
             event => {
                 let gl_window = sys.display.gl_window();
-                sys.platform.handle_event(sys.imgui.io_mut(), gl_window.window(), &event);
-            },
+                sys.platform
+                    .handle_event(sys.imgui.io_mut(), gl_window.window(), &event);
+            }
         });
 }
 
-fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64, delta: f32, loader: &loader::ChunkLoader, player: &Player) {
+fn run_ui(
+    _run: &mut bool,
+    ui: &mut Ui,
+    fps: f64,
+    delta: f32,
+    loader: &loader::ChunkLoader,
+    player: &Player,
+) {
     let window = Window::new("Stats")
         .resizable(true)
         .size_constraints([250.0, 100.0], [600.0, 300.0]);
@@ -252,9 +241,18 @@ fn run_ui(_run: &mut bool, ui: &mut Ui, fps: f64, delta: f32, loader: &loader::C
     ui.text(format!("Avg delta (ms): {}", 1000.0 / fps));
     ui.text(format!("Delta (ms): {}", delta * 1000.0));
     ui.new_line();
-    ui.text(format!("Player: ({:.3}, {:.3}, {:.3})", player.x, player.y, player.z));
-    ui.text(format!("Number of chunks loaded: {}", loader.get_number_of_loaded_chunks()));
-    ui.text(format!("Number of meshes loaded: {}", loader.get_number_of_loaded_meshes()));
+    ui.text(format!(
+        "Player: ({:.3}, {:.3}, {:.3})",
+        player.x, player.y, player.z
+    ));
+    ui.text(format!(
+        "Number of chunks loaded: {}",
+        loader.get_number_of_loaded_chunks()
+    ));
+    ui.text(format!(
+        "Number of meshes loaded: {}",
+        loader.get_number_of_loaded_meshes()
+    ));
     tok.end();
 }
 

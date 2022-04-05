@@ -1,6 +1,6 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
-use glium::glutin::event::{ElementState, VirtualKeyCode, MouseButton};
+use glium::glutin::event::{ElementState, MouseButton, VirtualKeyCode};
 
 /// Keeps track of which keys have been pressed.
 pub struct Input {
@@ -47,7 +47,10 @@ impl Input {
 
     /// Returns true if 'button' is pressed for any device
     pub fn is_mouse_button_pressed(&self, button: &MouseButton) -> bool {
-        self.mouse_button_state.get(button).map(|&s| s == ElementState::Pressed).unwrap_or(false)
+        self.mouse_button_state
+            .get(button)
+            .map(|&s| s == ElementState::Pressed)
+            .unwrap_or(false)
     }
 
     /// Returns false if 'button' is released from all devices

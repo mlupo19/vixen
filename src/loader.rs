@@ -1,16 +1,21 @@
 use crate::chunk::*;
 use crate::chunk_mesh::*;
 use crate::player;
+use crate::texture::*;
 use glium::Surface;
 
-use std::sync::{Arc, RwLock};
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+use std::mem::size_of;
+use std::sync::{Arc, RwLock};
+
+use crate::file_util::*;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct ChunkCoord {
-    x: i32,
-    y: i32,
-    z: i32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
 impl ChunkCoord {
@@ -52,13 +57,13 @@ pub struct ChunkLoader {
 
     needs_build: Vec<(ChunkCoord, (Vec<Vertex>, Vec<u16>))>,
     to_generate: Vec<ChunkCoord>,
+
+    texture_map: TextureMap,
 }
 
 impl ChunkLoader {
-
     /// Creates a new chunk loader with world seed
-    pub fn new(seed: u32) -> Self {
-
+    pub fn new(seed: u32, texture_map: TextureMap) -> Self {
         // Distance from camera that chunks are rendered (number of chunks)
         let render_distance = 10;
         // Distance from camera that chunks are generated/loaded
@@ -73,7 +78,7 @@ impl ChunkLoader {
             multiqueue::MPMCSender<ChunkCoord>,
             multiqueue::MPMCReceiver<ChunkCoord>,
         ) = multiqueue::mpmc_queue(
-            (load_distance * load_distance * load_distance) as u64 * 12,
+            (load_distance * load_distance * load_distance) as u64 * size_of::<ChunkCoord>() as u64,
         );
 
         // Multithreaded queue for sending chunk data that need to be loaded to worker threads for building meshes
@@ -81,7 +86,10 @@ impl ChunkLoader {
             multiqueue::MPMCSender<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
             multiqueue::MPMCReceiver<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
         ) = multiqueue::mpmc_queue(
-            (render_distance * render_distance * render_distance) as u64 * (12 + 8 + 48),
+            (render_distance * render_distance * render_distance) as u64
+                * (size_of::<ChunkCoord>()
+                    + size_of::<Arc<RwLock<Chunk>>>()
+                    + size_of::<NeighborChunks>()) as u64,
         );
 
         // Channel for sending loaded chunk back to main thread
@@ -103,6 +111,10 @@ impl ChunkLoader {
                 match chunk_coord_res {
                     Ok(chunk_coord) => {
                         // Generate chunk
+                        // let chunk = match try_load_from_file(&chunk_coord) {
+                        //     None => generator.generate_chunk((chunk_coord.x, chunk_coord.y, chunk_coord.z)),
+                        //     Some(chunk) => chunk,
+                        // };
                         let chunk =
                             generator.generate_chunk((chunk_coord.x, chunk_coord.y, chunk_coord.z));
 
@@ -114,8 +126,8 @@ impl ChunkLoader {
                             }
                         }
                     }
-                    Err(e) => {
-                        println!("Error receiving chunk coord from main thread: {}", e);
+                    Err(_e) => {
+                        break;
                     }
                 }
             });
@@ -125,12 +137,23 @@ impl ChunkLoader {
         for _ in 0..4 {
             let tx = mesh_tx.clone();
             let mesh_q_rec = mesh_q_rec.clone();
+            let texture_info = texture_map.info.clone();
 
             std::thread::spawn(move || loop {
                 // Receive data for generating mesh
-                 if let Ok((coord, chunk, neighbors)) =  mesh_q_rec.recv() {
+                if let Ok((coord, chunk, neighbors)) = mesh_q_rec.recv() {
                     // Generate mesh data
-                    let mesh_data = chunk.read().unwrap().gen_mesh((neighbors.0, neighbors.1, neighbors.2, neighbors.3, neighbors.4, neighbors.5));
+                    let mesh_data = chunk.read().unwrap().gen_mesh(
+                        (
+                            neighbors.0,
+                            neighbors.1,
+                            neighbors.2,
+                            neighbors.3,
+                            neighbors.4,
+                            neighbors.5,
+                        ),
+                        &texture_info,
+                    );
 
                     // Send mesh data to main thread
                     match tx.send((coord, mesh_data)) {
@@ -161,6 +184,7 @@ impl ChunkLoader {
             to_generate: Vec::with_capacity(
                 (8 * load_distance * load_distance * load_distance) as usize,
             ),
+            texture_map,
         }
     }
 
@@ -168,7 +192,6 @@ impl ChunkLoader {
     /// inserts the next loaded chunk and generates meshes for chunks within render distance.
     /// To be called on the main thread once per game tick.
     pub fn update(&mut self, player: &crate::player::Player, display: &glium::Display) {
-
         // Check chunks surrounding player and queue them to be loaded if not already
         for x in (player.x as i32 / CHUNK_SIZE.0 as i32 - self.load_distance as i32)
             ..(player.x as i32 / CHUNK_SIZE.0 as i32 + self.load_distance as i32)
@@ -207,14 +230,17 @@ impl ChunkLoader {
         // Receive loaded chunk from worker
         while let Ok((coord, chunk)) = self.chunk_rx.try_recv() {
             let chunk = chunk;
-            self.chunk_map.insert(coord.clone(), Arc::new(RwLock::new(chunk)));
+            self.chunk_map
+                .insert(coord.clone(), Arc::new(RwLock::new(chunk)));
             self.queued_chunks.remove(&coord);
         }
 
         // Check loaded chunks if they are in render distance and if their meshes are loaded.
         // If not, add them to list of meshes to be generated
         for (coord, chunk) in &mut self.chunk_map {
-            if !chunk.read().unwrap().is_empty() && in_distance(&player, coord, self.render_distance) {
+            if !chunk.read().unwrap().is_empty()
+                && in_distance(&player, coord, self.render_distance)
+            {
                 match self.mesh_map.get(&coord) {
                     None => {
                         chunk.write().unwrap().request_update();
@@ -260,18 +286,23 @@ impl ChunkLoader {
                         },
                     );
 
-                    match self.mesh_q.try_send((coord.clone(), self.chunk_map.get(coord).unwrap().clone(), neighbors)) {
+                    match self.mesh_q.try_send((
+                        coord.clone(),
+                        self.chunk_map.get(coord).unwrap().clone(),
+                        neighbors,
+                    )) {
                         Ok(_) => {
                             self.queued_meshes.insert(coord.clone());
-                        },
+                        }
                         Err(e) => {
-                            println!("Error sending chunk data for mesh generation to workers: {}", e);
+                            println!(
+                                "Error sending chunk data for mesh generation to workers: {}",
+                                e
+                            );
                         }
                     }
                 }
-                Some(_) => {
-
-                }
+                Some(_) => {}
             }
         }
 
@@ -299,7 +330,12 @@ impl ChunkLoader {
                     });
 
                     self.mesh_map.insert(coord.clone(), mesh);
-                    self.chunk_map.get_mut(&coord).unwrap().write().unwrap().set_updated();
+                    self.chunk_map
+                        .get_mut(&coord)
+                        .unwrap()
+                        .write()
+                        .unwrap()
+                        .set_updated();
                 }
                 Err(e) => {
                     println!("Error creating vertex buffer: {:?}", e);
@@ -310,14 +346,12 @@ impl ChunkLoader {
         // Unload meshes out of render distance
         // TODO: Don't drop meshes out of render distance, just don't render them so they don't have to be rebuilt
         // (Be careful of making sure that they are updated if they come back into render distance)
-        self.mesh_map.retain(|coord, _| {
-            in_distance(&player, &coord, self.render_distance)
-        });
+        self.mesh_map
+            .retain(|coord, _| in_distance(&player, &coord, self.render_distance));
 
         // Unload chunks out of load distance
-        self.chunk_map.retain(|coord, _| {
-            in_distance(&player, &coord, self.load_distance)
-        });
+        self.chunk_map
+            .retain(|coord, _| in_distance(&player, &coord, self.load_distance));
 
         // Clear temporary lists
         self.needs_build.clear();
@@ -325,7 +359,7 @@ impl ChunkLoader {
     }
 
     /// Returns block data based on coordinate (world space). Returns none if block is in unloaded chunk
-    pub fn get_block(&self, [x, y, z]: [i32;3]) -> Option<Block> {
+    pub fn get_block(&self, [x, y, z]: [i32; 3]) -> Option<Block> {
         let chunk_coord = ChunkCoord {
             x: (x as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
             y: (y as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
@@ -351,7 +385,7 @@ impl ChunkLoader {
 
         match self.chunk_map.get(&chunk_coord) {
             None => None,
-            Some(chunk) => Some(chunk.clone())
+            Some(chunk) => Some(chunk.clone()),
         }
     }
 
@@ -362,10 +396,9 @@ impl ChunkLoader {
         program: &glium::Program,
         view_projection: [[f32; 4]; 4],
         u_light: [f32; 3],
-        diffuse_tex: &glium::texture::SrgbTexture2d,
-        normal_tex: &glium::texture::Texture2d,
         params: &glium::DrawParameters,
     ) {
+
         let frustum = crate::camera::Frustum::new(&view_projection);
         for (chunk_coord, chunk_mesh) in &self.mesh_map {
             if frustum.contains(&[chunk_coord.x, chunk_coord.y, chunk_coord.z]) {
@@ -373,7 +406,7 @@ impl ChunkLoader {
                     chunk_mesh.get_mesh(),
                     chunk_mesh.get_indices(),
                     program,
-                    &uniform! {view_projection: view_projection, u_light: u_light, diffuse_tex: diffuse_tex, normal_tex: normal_tex, chunk_coords: [(chunk_coord.x as i32 * CHUNK_SIZE.0 as i32) as f32, (chunk_coord.y as i32 * CHUNK_SIZE.1 as i32) as f32, (chunk_coord.z as i32 * CHUNK_SIZE.2 as i32) as f32]},
+                    &uniform! {view_projection: view_projection, u_light: u_light, diffuse_tex: self.texture_map.base.sampled().magnify_filter(glium::uniforms::MagnifySamplerFilter::Nearest), normal_tex: &self.texture_map.normal, chunk_coords: [(chunk_coord.x as i32 * CHUNK_SIZE.0 as i32) as f32, (chunk_coord.y as i32 * CHUNK_SIZE.1 as i32) as f32, (chunk_coord.z as i32 * CHUNK_SIZE.2 as i32) as f32]},
                     params,
                 ) {
                     Ok(_) => (),
@@ -399,11 +432,29 @@ impl ChunkLoader {
 #[inline]
 fn in_distance(player: &player::Player, coord: &ChunkCoord, distance: u16) -> bool {
     ((player.x as i32 - (coord.x * CHUNK_SIZE.0 as i32)) / CHUNK_SIZE.0 as i32).abs()
-                <= distance as i32
-                && ((player.y as i32 - (coord.y * CHUNK_SIZE.1 as i32)) / CHUNK_SIZE.1 as i32).abs()
-                    <= distance as i32
-                && ((player.z as i32 - (coord.z * CHUNK_SIZE.2 as i32)) / CHUNK_SIZE.2 as i32).abs()
-                    <= distance as i32
+        <= distance as i32
+        && ((player.y as i32 - (coord.y * CHUNK_SIZE.1 as i32)) / CHUNK_SIZE.1 as i32).abs()
+            <= distance as i32
+        && ((player.z as i32 - (coord.z * CHUNK_SIZE.2 as i32)) / CHUNK_SIZE.2 as i32).abs()
+            <= distance as i32
 }
 
-pub struct NeighborChunks(Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>,Arc<RwLock<Chunk>>);
+pub struct NeighborChunks(
+    Arc<RwLock<Chunk>>,
+    Arc<RwLock<Chunk>>,
+    Arc<RwLock<Chunk>>,
+    Arc<RwLock<Chunk>>,
+    Arc<RwLock<Chunk>>,
+    Arc<RwLock<Chunk>>,
+);
+
+fn try_load_from_file(chunk_coord: &ChunkCoord) -> Option<Chunk> {
+    let path = format!(
+        "chunks/x{}y{}z{}.chunk",
+        chunk_coord.x, chunk_coord.y, chunk_coord.z
+    );
+    match read_chunk_data_from_file(&path) {
+        None => None,
+        Some(data) => Some(Chunk::from_data(chunk_coord.clone(), data)),
+    }
+}

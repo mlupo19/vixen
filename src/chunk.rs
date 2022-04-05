@@ -1,10 +1,21 @@
-use crate::chunk_mesh::*;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
+use std::{
+    collections::HashMap,
+    fmt::Result,
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
-use std::sync::{Arc, RwLock};
+use ndarray::Array3;
+use serde::*;
+
+use crate::{file_util::save_to_file, loader::ChunkCoord};
 
 pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     pub id: u16,
     pub health: f32,
@@ -63,27 +74,38 @@ impl Faces {
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
     position: u32,
-    tex_coords: u32,
+    tex_coords: [f32;2],
 }
 
 implement_vertex!(Vertex, position, tex_coords);
 
 pub struct Chunk {
+    coord: ChunkCoord,
     block_data: Option<Box<ndarray::Array3<Block>>>,
     needs_update: bool,
 }
 
 impl Chunk {
-    pub fn empty() -> Chunk {
+    pub fn empty(coord: ChunkCoord) -> Chunk {
         Chunk {
+            coord,
             block_data: None,
             needs_update: false,
         }
     }
 
-    pub fn new() -> Chunk {
+    pub fn new(coord: ChunkCoord) -> Chunk {
         Chunk {
+            coord,
             block_data: None,
+            needs_update: true,
+        }
+    }
+
+    pub fn from_data(coord: ChunkCoord, data: Box<Array3<Block>>) -> Chunk {
+        Chunk {
+            coord,
+            block_data: Some(data),
             needs_update: true,
         }
     }
@@ -94,12 +116,10 @@ impl Chunk {
         indices: &mut Vec<u16>,
         (i, j, k): (usize, usize, usize),
         face: &Face,
+        texture_map_info: &Arc<HashMap<u16, [[[f32; 2]; 4]; 6]>>,
     ) {
         const FACE_INDICES: &[i32; 6] = &[2, 1, 0, 0, 3, 2];
-        const TEX_COORDS: &[[f32; 2]; 4] = &[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let mut mesh_face_index_loc: [usize; 4] = [0; 4];
-        // let tex_coords = Block::get_texture_coords(1, face.face_id);
-        let face_tex_coords = { {} };
 
         for c in 0..4 {
             let (fx, fy, fz) = face.points.get(c).unwrap();
@@ -113,11 +133,11 @@ impl Chunk {
                     | (face.normal.0 as u32) << 18
                     | (face.normal.1 as u32) << 19
                     | (face.normal.2 as u32) << 20,
-                tex_coords: match face.face_id {
-                    0 | 1 | 2 | 3 | 4 | 5 | _ => {
-                        (TEX_COORDS[c][0] * 1000.0) as u32
-                            | ((TEX_COORDS[c][1] * 1000.0) as u32) << 16
-                    }
+                tex_coords: {
+                    let face_tex_coords = texture_map_info
+                        .get(&self.get_block((i, j, k)).unwrap().id)
+                        .unwrap()[face.face_id as usize];
+                    [face_tex_coords[c][0],face_tex_coords[c][1]]
                 },
             });
         }
@@ -137,6 +157,7 @@ impl Chunk {
             Arc<RwLock<Chunk>>,
             Arc<RwLock<Chunk>>,
         ),
+        texture_map_info: &Arc<HashMap<u16, [[[f32; 2]; 4]; 6]>>,
     ) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = Vec::with_capacity(CHUNK_SIZE.0 * CHUNK_SIZE.1 * CHUNK_SIZE.2);
         let mut indices = Vec::with_capacity(CHUNK_SIZE.0 * CHUNK_SIZE.1 * CHUNK_SIZE.2 * 3);
@@ -177,10 +198,17 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::RIGHT,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
-                                self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::RIGHT);
+                                self.add_face(
+                                    &mut vertices,
+                                    &mut indices,
+                                    (i, j, k),
+                                    Faces::RIGHT,
+                                    texture_map_info,
+                                );
                             }
                         }
 
@@ -212,10 +240,17 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::LEFT,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
-                                self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::LEFT);
+                                self.add_face(
+                                    &mut vertices,
+                                    &mut indices,
+                                    (i, j, k),
+                                    Faces::LEFT,
+                                    texture_map_info,
+                                );
                             }
                         }
 
@@ -247,6 +282,7 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::BOTTOM,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
@@ -255,6 +291,7 @@ impl Chunk {
                                     &mut indices,
                                     (i, j, k),
                                     Faces::BOTTOM,
+                                    texture_map_info,
                                 );
                             }
                         }
@@ -287,10 +324,17 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::TOP,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
-                                self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::TOP);
+                                self.add_face(
+                                    &mut vertices,
+                                    &mut indices,
+                                    (i, j, k),
+                                    Faces::TOP,
+                                    texture_map_info,
+                                );
                             }
                         }
 
@@ -322,10 +366,17 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::FRONT,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
-                                self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::FRONT);
+                                self.add_face(
+                                    &mut vertices,
+                                    &mut indices,
+                                    (i, j, k),
+                                    Faces::FRONT,
+                                    texture_map_info,
+                                );
                             }
                         }
 
@@ -357,10 +408,17 @@ impl Chunk {
                                         &mut indices,
                                         (i, j, k),
                                         Faces::BACK,
+                                        texture_map_info,
                                     );
                                 }
                             } else {
-                                self.add_face(&mut vertices, &mut indices, (i, j, k), Faces::BACK);
+                                self.add_face(
+                                    &mut vertices,
+                                    &mut indices,
+                                    (i, j, k),
+                                    Faces::BACK,
+                                    texture_map_info,
+                                );
                             }
                         }
                     }
@@ -386,15 +444,11 @@ impl Chunk {
 
     pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<Block> {
         match &self.block_data {
-            None => Some(Block {
-                id: 0,
-                health: 0.0,
-            }),
-            Some(data) => 
-            match data.get((i, j, k)) {
+            None => Some(Block { id: 0, health: 0.0 }),
+            Some(data) => match data.get((i, j, k)) {
                 None => None,
                 Some(block) => Some(block.clone()),
-            }
+            },
         }
     }
 
@@ -404,6 +458,10 @@ impl Chunk {
 
     pub fn get_data_mut(&mut self) -> &mut Option<Box<ndarray::Array3<Block>>> {
         &mut self.block_data
+    }
+
+    pub fn get_data(&self) -> &Option<Box<ndarray::Array3<Block>>> {
+        &self.block_data
     }
 
     pub fn set_updated(&mut self) {
@@ -422,3 +480,19 @@ impl Chunk {
         self.needs_update = true;
     }
 }
+
+// impl Drop for Chunk {
+//     fn drop(&mut self) {
+//         if let Some(data) = &self.block_data {
+//             let serialized = bincode::serialize(&data);
+//             match serialized {
+//                 Ok(bytes) => {
+//                     save_to_file(bytes.as_slice(), &format!("chunks/x{}y{}z{}.chunk", self.coord.x, self.coord.y, self.coord.z));
+//                 },
+//                 Err(e) => {
+//                     println!("Error serializing chunk: {}", e);
+//                 }
+//             }
+//         }
+//     }
+// }
