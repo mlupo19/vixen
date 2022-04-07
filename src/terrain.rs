@@ -18,8 +18,8 @@ impl TerrainGenerator {
     pub fn new(seed: u32) -> TerrainGenerator {
         let noise = noise::Perlin::new().set_seed(seed);
         TerrainGenerator {
-            seed: seed,
-            noise: noise,
+            seed,
+            noise,
             sea_level: 60,
         }
     }

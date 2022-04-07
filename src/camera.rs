@@ -63,7 +63,7 @@ impl Camera {
         let (width, height) = target.get_dimensions();
         let aspect_ratio = height as f32 / width as f32;
 
-        let fov: f32 = 1.15 * 3.141592 / 3.0;
+        let fov: f32 = 1.15 * std::f32::consts::PI / 3.0;
         let zfar = 1024.0;
         let znear = 0.1;
 

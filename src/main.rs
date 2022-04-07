@@ -94,7 +94,7 @@ fn main() {
                     player.get_camera_mut().pitch +=
                         input.get_mouse_delta_y() as f32 * delta * player.rot_speed;
 
-                    player.get_camera_mut().pitch = player.get_camera().pitch.min(3.141592);
+                    player.get_camera_mut().pitch = player.get_camera().pitch.min(std::f32::consts::PI);
                     player.get_camera_mut().pitch = player.get_camera().pitch.max(0.0);
 
                     match sys.display.gl_window().window().set_cursor_position(
@@ -130,10 +130,6 @@ fn main() {
                     last_q_sec = now;
                     fps = frames as f64 / since_q_sec;
                     frames = 0;
-                }
-
-                if 1.0 / delta < 20.0 {
-                    println!("{}", 1.0 / delta);
                 }
 
                 let mut ui = sys.imgui.frame();

@@ -5,7 +5,7 @@ use std::fs::File;
 use serde::{Deserialize, Serialize};
 
 use glium::{Texture2d, texture::SrgbTexture2d};
-use glium::texture::{RawImage2d};
+use glium::texture::RawImage2d;
 
 pub struct TextureMap {
     pub base: SrgbTexture2d,
@@ -44,7 +44,7 @@ pub fn load_texture_map(base: &str, normal: Option<&str>, display: &glium::Displ
 
     let image_dimensions = image.dimensions();
     let raw = &image.into_raw();
-    println!("Size: {:?}", &raw.len());
+    
     let image =
         RawImage2d::from_raw_rgba_reversed(raw, image_dimensions);
     let base = SrgbTexture2d::new(display, image).unwrap();
@@ -86,7 +86,6 @@ pub fn load_texture_map(base: &str, normal: Option<&str>, display: &glium::Displ
     
     // Process info
     let unit_grid_size = image_dimensions.0 / info.grid;
-    println!("Unit grid size: {}", unit_grid_size);
     
     let info = calculate(unit_grid_size, info.grid, image_dimensions.0, info);
 

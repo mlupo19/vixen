@@ -189,7 +189,7 @@ impl Default for Player {
                 x: 0.0,
                 y: 100.0,
                 z: 0.0,
-                pitch: 3.141592 / 2.0,
+                pitch: std::f32::consts::PI / 2.0,
                 yaw: 0.0,
                 roll: 0.0,
                 projection: [[0.0; 4]; 4],

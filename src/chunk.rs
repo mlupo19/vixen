@@ -1,17 +1,12 @@
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
 use std::{
     collections::HashMap,
-    fmt::Result,
-    ops::Deref,
     sync::{Arc, RwLock},
 };
 
 use ndarray::Array3;
 use serde::*;
 
-use crate::{file_util::save_to_file, loader::ChunkCoord};
+use crate::loader::ChunkCoord;
 
 pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
@@ -24,8 +19,8 @@ pub struct Block {
 impl Block {
     pub fn new(id: u16, health: f32) -> Block {
         Block {
-            id: id,
-            health: health,
+            id,
+            health,
         }
     }
 }
@@ -149,14 +144,7 @@ impl Chunk {
 
     pub fn gen_mesh(
         &self,
-        neighbors: (
-            Arc<RwLock<Chunk>>,
-            Arc<RwLock<Chunk>>,
-            Arc<RwLock<Chunk>>,
-            Arc<RwLock<Chunk>>,
-            Arc<RwLock<Chunk>>,
-            Arc<RwLock<Chunk>>,
-        ),
+        neighbors: [Arc<RwLock<Chunk>>;6],
         texture_map_info: &Arc<HashMap<u16, [[[f32; 2]; 4]; 6]>>,
     ) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = Vec::with_capacity(CHUNK_SIZE.0 * CHUNK_SIZE.1 * CHUNK_SIZE.2);
@@ -182,7 +170,7 @@ impl Chunk {
                         {
                             // Check neighbor chunk if block is on edge
                             if i == CHUNK_SIZE.0 - 1 {
-                                let neighbor = neighbors.0.read().unwrap();
+                                let neighbor = neighbors[0].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -224,7 +212,7 @@ impl Chunk {
                                 == 0
                         {
                             if i == 0 {
-                                let neighbor = neighbors.1.read().unwrap();
+                                let neighbor = neighbors[1].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -266,7 +254,7 @@ impl Chunk {
                                 == 0
                         {
                             if j == 0 {
-                                let neighbor = neighbors.2.read().unwrap();
+                                let neighbor = neighbors[2].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -308,7 +296,7 @@ impl Chunk {
                                 == 0
                         {
                             if j == CHUNK_SIZE.1 - 1 {
-                                let neighbor = neighbors.3.read().unwrap();
+                                let neighbor = neighbors[3].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -350,7 +338,7 @@ impl Chunk {
                                 == 0
                         {
                             if k == CHUNK_SIZE.2 - 1 {
-                                let neighbor = neighbors.4.read().unwrap();
+                                let neighbor = neighbors[4].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -392,7 +380,7 @@ impl Chunk {
                                 == 0
                         {
                             if k == 0 {
-                                let neighbor = neighbors.5.read().unwrap();
+                                let neighbor = neighbors[5].read().unwrap();
                                 if neighbor.block_data.is_none()
                                     || neighbor
                                         .block_data
@@ -445,10 +433,7 @@ impl Chunk {
     pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<Block> {
         match &self.block_data {
             None => Some(Block { id: 0, health: 0.0 }),
-            Some(data) => match data.get((i, j, k)) {
-                None => None,
-                Some(block) => Some(block.clone()),
-            },
+            Some(data) => Some(data[(i, j, k)].clone()),
         }
     }
 

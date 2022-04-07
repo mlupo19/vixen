@@ -9,7 +9,8 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::{Arc, RwLock};
 
-use crate::file_util::*;
+type MeshData = (ChunkCoord, (Vec<Vertex>, Vec<u16>));
+type ChunkWithNeighbors = (ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks);
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct ChunkCoord {
@@ -52,10 +53,10 @@ pub struct ChunkLoader {
     simulation_distance: u16,
     chunk_rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
     chunk_q: multiqueue::MPMCSender<ChunkCoord>,
-    mesh_rx: std::sync::mpsc::Receiver<(ChunkCoord, (Vec<Vertex>, Vec<u16>))>,
-    mesh_q: multiqueue::MPMCSender<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
+    mesh_rx: std::sync::mpsc::Receiver<MeshData>,
+    mesh_q: multiqueue::MPMCSender<ChunkWithNeighbors>,
 
-    needs_build: Vec<(ChunkCoord, (Vec<Vertex>, Vec<u16>))>,
+    needs_build: Vec<MeshData>,
     to_generate: Vec<ChunkCoord>,
 
     texture_map: TextureMap,
@@ -83,8 +84,8 @@ impl ChunkLoader {
 
         // Multithreaded queue for sending chunk data that need to be loaded to worker threads for building meshes
         let (mesh_q, mesh_q_rec): (
-            multiqueue::MPMCSender<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
-            multiqueue::MPMCReceiver<(ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks)>,
+            multiqueue::MPMCSender<ChunkWithNeighbors>,
+            multiqueue::MPMCReceiver<ChunkWithNeighbors>,
         ) = multiqueue::mpmc_queue(
             (render_distance * render_distance * render_distance) as u64
                 * (size_of::<ChunkCoord>()
@@ -144,14 +145,14 @@ impl ChunkLoader {
                 if let Ok((coord, chunk, neighbors)) = mesh_q_rec.recv() {
                     // Generate mesh data
                     let mesh_data = chunk.read().unwrap().gen_mesh(
-                        (
+                        [
                             neighbors.0,
                             neighbors.1,
                             neighbors.2,
                             neighbors.3,
                             neighbors.4,
                             neighbors.5,
-                        ),
+                        ],
                         &texture_info,
                     );
 
@@ -239,9 +240,9 @@ impl ChunkLoader {
         // If not, add them to list of meshes to be generated
         for (coord, chunk) in &mut self.chunk_map {
             if !chunk.read().unwrap().is_empty()
-                && in_distance(&player, coord, self.render_distance)
+                && in_distance(player, coord, self.render_distance)
             {
-                match self.mesh_map.get(&coord) {
+                match self.mesh_map.get(coord) {
                     None => {
                         chunk.write().unwrap().request_update();
                         self.to_generate.push(coord.clone());
@@ -331,7 +332,7 @@ impl ChunkLoader {
 
                     self.mesh_map.insert(coord.clone(), mesh);
                     self.chunk_map
-                        .get_mut(&coord)
+                        .get_mut(coord)
                         .unwrap()
                         .write()
                         .unwrap()
@@ -347,11 +348,11 @@ impl ChunkLoader {
         // TODO: Don't drop meshes out of render distance, just don't render them so they don't have to be rebuilt
         // (Be careful of making sure that they are updated if they come back into render distance)
         self.mesh_map
-            .retain(|coord, _| in_distance(&player, &coord, self.render_distance));
+            .retain(|coord, _| in_distance(player, coord, self.render_distance));
 
         // Unload chunks out of load distance
         self.chunk_map
-            .retain(|coord, _| in_distance(&player, &coord, self.load_distance));
+            .retain(|coord, _| in_distance(player, coord, self.load_distance));
 
         // Clear temporary lists
         self.needs_build.clear();
@@ -383,10 +384,7 @@ impl ChunkLoader {
             z: (k as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
         };
 
-        match self.chunk_map.get(&chunk_coord) {
-            None => None,
-            Some(chunk) => Some(chunk.clone()),
-        }
+        self.chunk_map.get(&chunk_coord).cloned()
     }
 
     /// Renders chunk meshes
@@ -398,7 +396,6 @@ impl ChunkLoader {
         u_light: [f32; 3],
         params: &glium::DrawParameters,
     ) {
-
         let frustum = crate::camera::Frustum::new(&view_projection);
         for (chunk_coord, chunk_mesh) in &self.mesh_map {
             if frustum.contains(&[chunk_coord.x, chunk_coord.y, chunk_coord.z]) {
@@ -406,7 +403,13 @@ impl ChunkLoader {
                     chunk_mesh.get_mesh(),
                     chunk_mesh.get_indices(),
                     program,
-                    &uniform! {view_projection: view_projection, u_light: u_light, diffuse_tex: self.texture_map.base.sampled().magnify_filter(glium::uniforms::MagnifySamplerFilter::Nearest), normal_tex: &self.texture_map.normal, chunk_coords: [(chunk_coord.x as i32 * CHUNK_SIZE.0 as i32) as f32, (chunk_coord.y as i32 * CHUNK_SIZE.1 as i32) as f32, (chunk_coord.z as i32 * CHUNK_SIZE.2 as i32) as f32]},
+                    &uniform! {
+                        view_projection: view_projection,
+                        u_light: u_light,
+                        diffuse_tex: self.texture_map.base.sampled().magnify_filter(glium::uniforms::MagnifySamplerFilter::Nearest).minify_filter(glium::uniforms::MinifySamplerFilter::LinearMipmapLinear).anisotropy(32),
+                        normal_tex: &self.texture_map.normal,
+                        chunk_coords: [(chunk_coord.x as i32 * CHUNK_SIZE.0 as i32) as f32, (chunk_coord.y as i32 * CHUNK_SIZE.1 as i32) as f32, (chunk_coord.z as i32 * CHUNK_SIZE.2 as i32) as f32]
+                    },
                     params,
                 ) {
                     Ok(_) => (),
@@ -448,13 +451,13 @@ pub struct NeighborChunks(
     Arc<RwLock<Chunk>>,
 );
 
-fn try_load_from_file(chunk_coord: &ChunkCoord) -> Option<Chunk> {
-    let path = format!(
-        "chunks/x{}y{}z{}.chunk",
-        chunk_coord.x, chunk_coord.y, chunk_coord.z
-    );
-    match read_chunk_data_from_file(&path) {
-        None => None,
-        Some(data) => Some(Chunk::from_data(chunk_coord.clone(), data)),
-    }
-}
+// fn try_load_from_file(chunk_coord: &ChunkCoord) -> Option<Chunk> {
+//     let path = format!(
+//         "chunks/x{}y{}z{}.chunk",
+//         chunk_coord.x, chunk_coord.y, chunk_coord.z
+//     );
+//     match read_chunk_data_from_file(&path) {
+//         None => None,
+//         Some(data) => Some(Chunk::from_data(chunk_coord.clone(), data)),
+//     }
+// }
