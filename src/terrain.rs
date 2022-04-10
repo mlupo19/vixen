@@ -26,7 +26,7 @@ impl TerrainGenerator {
 
     /// Generate chunk at coord (x,y,z) in chunk space
     pub fn generate_chunk(&self, (x, y, z): (i32, i32, i32)) -> Chunk {
-        let mut out = Chunk::new(ChunkCoord { x, y, z });
+        let mut out = Chunk::empty(ChunkCoord { x, y, z });
 
         if y > 4 || y < -4 {
             return out;

@@ -94,7 +94,7 @@ fn main() {
                     player.get_camera_mut().pitch +=
                         input.get_mouse_delta_y() as f32 * delta * player.rot_speed;
 
-                    player.get_camera_mut().pitch = player.get_camera().pitch.min(std::f32::consts::PI);
+                    player.get_camera_mut().pitch = player.get_camera().pitch.min(std::f32::consts::PI - 0.001);
                     player.get_camera_mut().pitch = player.get_camera().pitch.max(0.0);
 
                     match sys.display.gl_window().window().set_cursor_position(
@@ -111,7 +111,7 @@ fn main() {
                 }
 
                 chunk_loader.update(&player, &sys.display);
-                player.update(delta, &input, &chunk_loader);
+                player.update(delta, &input, &mut chunk_loader);
 
                 let gl_window = sys.display.gl_window();
                 sys.platform
@@ -240,6 +240,9 @@ fn run_ui(
     ui.text(format!(
         "Player: ({:.3}, {:.3}, {:.3})",
         player.x, player.y, player.z
+    ));
+    ui.text(format!("Camera: ({:.3}, {:.3}, {:.3})",
+        player.get_camera().x, player.get_camera().y, player.get_camera().z
     ));
     ui.text(format!(
         "Number of chunks loaded: {}",

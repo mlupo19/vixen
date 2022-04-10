@@ -1,12 +1,17 @@
 use crate::camera;
+use crate::camera::Camera;
+use crate::chunk::Block;
 use crate::input;
 use crate::loader;
+use crate::loader::ChunkLoader;
 
 use glium::glutin;
 
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::bounding_volume::AABB;
 use parry3d::na::Point3;
+
+use fast_voxel_traversal::raycast_3d::*;
 
 pub struct Player {
     pub x: f32,
@@ -43,7 +48,7 @@ impl Player {
         }
     }
 
-    pub fn update(&mut self, delta: f32, input: &input::Input, loader: &loader::ChunkLoader) {
+    pub fn update(&mut self, delta: f32, input: &input::Input, loader: &mut loader::ChunkLoader) {
         let mut step = (0.0, 0.0, 0.0);
 
         if input.is_key_pressed(&glutin::event::VirtualKeyCode::W) {
@@ -70,12 +75,22 @@ impl Player {
 
         // Check if player is trying to mine
         if input.is_mouse_button_pressed(&glutin::event::MouseButton::Left) {
-            let mut ray_dir = [0.0, 0.0, -1.0, 0.0];
-            //nalgebra::try_invert_to(self.camera.projection, ray_dir);
+            let range = 4.0;
+            let coord = cast_ray([self.camera.x,self.camera.y,self.camera.z], range, self.camera.pitch, self.camera.yaw, loader);
+            mine(coord, delta, 10.0, loader);
         }
 
         // Check if player is trying to build
-        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {}
+        if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {
+            let range = 4.0;
+            let coord = cast_ray_in_front([self.camera.x, self.camera.y, self.camera.z], range, self.camera.pitch, self.camera.yaw, loader);
+            if let Some(coord) = coord {
+                if coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32, self.camera.z.floor() as i32]
+                 && coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32 - 1, self.camera.z.floor() as i32] {
+                     loader.set_block(coord, Block::new(1, 5.0));
+                 }
+            }
+        }
 
         self.velocity.1 -= 20.0 * delta;
 
@@ -211,4 +226,53 @@ fn create_player_aabb(
         Point3::new(x_min - HALF_WIDTH, y_min, z_min - HALF_DEPTH),
         Point3::new(x_max + HALF_WIDTH, y_max + HEIGHT, z_max + HALF_DEPTH),
     )
+}
+
+fn cast_ray(start_point: [f32;3], rho: f32, phi: f32, theta: f32, loader: &ChunkLoader) -> [i32;3] {
+    let ((sin_p, cos_p), (sin_t, cos_t)) = (phi.sin_cos(), theta.sin_cos());
+    let ray_size = [rho * sin_p * cos_t,
+                             rho * cos_p,
+                             rho * sin_p * sin_t];
+
+    let end_point = (start_point[0] + ray_size[0], start_point[1] + ray_size[1], start_point[2] + ray_size[2]);
+
+    for (x, y, z) in line_drawing::WalkVoxels::new((start_point[0], start_point[1], start_point[2]), end_point, &line_drawing::VoxelOrigin::Corner) {
+        if let Some(block) = loader.get_block([x,y,z]) {
+            if block.id != 0 {
+                return [x,y,z];
+            }
+        }
+    }
+    [start_point[0].floor() as i32, start_point[1].floor() as i32, start_point[2].floor() as i32]
+}
+
+/// Casts a ray and returns block coordinate of the air block in front of the block the ray hit, and None otherwise
+fn cast_ray_in_front(start_point: [f32;3], rho: f32, phi: f32, theta: f32, loader: &ChunkLoader) -> Option<[i32;3] >{
+    let ((sin_p, cos_p), (sin_t, cos_t)) = (phi.sin_cos(), theta.sin_cos());
+    let ray_size = [rho * sin_p * cos_t,
+                             rho * cos_p,
+                             rho * sin_p * sin_t];
+
+    let end_point = (start_point[0] + ray_size[0], start_point[1] + ray_size[1], start_point[2] + ray_size[2]);
+    let mut last = [start_point[0].floor() as i32, start_point[1].floor() as i32, start_point[2].floor() as i32];
+    for (x, y, z) in line_drawing::WalkVoxels::new((start_point[0], start_point[1], start_point[2]), end_point, &line_drawing::VoxelOrigin::Corner) {
+        if let Some(block) = loader.get_block([x,y,z]) {
+            if block.id != 0 {
+                return Some(last);
+            }
+        }
+        last = [x,y,z];
+    }
+    None
+}
+
+#[inline]
+fn mine(coord: [i32;3], delta: f32, speed: f32, loader: &mut ChunkLoader) {
+    let mut block = loader.get_block(coord).unwrap_or(Block::air());
+    block.health -= delta * speed;
+    if block.health <= 0.0 && block.id != 0 {
+        loader.set_block(coord.clone(), Block::air());
+    } else {
+        loader.set_block(coord.clone(), block);
+    }
 }

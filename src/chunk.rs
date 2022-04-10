@@ -23,9 +23,12 @@ impl Block {
             health,
         }
     }
+
+    pub fn air() -> Block {
+        Block { id: 0, health: 0.0 }
+    }
 }
 
-#[non_exhaustive]
 struct Faces;
 struct Face {
     points: &'static [(i32, i32, i32); 4],
@@ -417,22 +420,30 @@ impl Chunk {
         (vertices, indices)
     }
 
-    pub fn set_block(&mut self, (i, j, k): (usize, usize, usize), block: Block) {
+    pub fn set_block(&mut self, (i, j, k): (usize, usize, usize), block: Block) -> bool {
+        let mut needs_update = false;
+
         match self.block_data {
-            None => self.block_data = Some(Box::new(ndarray::Array3::default(CHUNK_SIZE))),
+            None => {
+                self.block_data = Some(Box::new(ndarray::Array3::default(CHUNK_SIZE)));
+                needs_update = true;
+            },
             Some(_) => {
                 if self.block_data.as_ref().unwrap()[[i, j, k]] != block {
                     self.needs_update = true;
+                    needs_update = true;
                 }
             }
         }
 
         self.block_data.as_mut().unwrap()[[i, j, k]] = block;
+
+        needs_update
     }
 
     pub fn get_block(&self, (i, j, k): (usize, usize, usize)) -> Option<Block> {
         match &self.block_data {
-            None => Some(Block { id: 0, health: 0.0 }),
+            None => Some(Block { id: 0, health: 69.0 }),
             Some(data) => Some(data[(i, j, k)].clone()),
         }
     }

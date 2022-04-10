@@ -9,9 +9,14 @@ use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::{Arc, RwLock};
 
+/// Consists of the chunk coordinate, vertices, and indices
 type MeshData = (ChunkCoord, (Vec<Vertex>, Vec<u16>));
+/// Consists of the chunk coordinate, chunk data, and the surrounding chunks
 type ChunkWithNeighbors = (ChunkCoord, Arc<RwLock<Chunk>>, NeighborChunks);
+/// Used to hold the 6 surrounding chunks of a chunk
+type NeighborChunks = [Arc<RwLock<Chunk>>;6];
 
+/// The coordinates of a chunk in chunk space
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct ChunkCoord {
     pub x: i32,
@@ -20,6 +25,9 @@ pub struct ChunkCoord {
 }
 
 impl ChunkCoord {
+    pub fn new(x: i32, y: i32, z: i32) -> Self {
+        ChunkCoord { x, y, z }
+    }
     pub fn dx(&self, dx: i32) -> ChunkCoord {
         ChunkCoord {
             x: self.x + dx,
@@ -43,6 +51,7 @@ impl ChunkCoord {
     }
 }
 
+/// Responsible for handling of loading and unloading chunks as well as mesh generation/unloading
 pub struct ChunkLoader {
     chunk_map: HashMap<ChunkCoord, Arc<RwLock<Chunk>>>,
     mesh_map: HashMap<ChunkCoord, ChunkMesh>,
@@ -145,14 +154,7 @@ impl ChunkLoader {
                 if let Ok((coord, chunk, neighbors)) = mesh_q_rec.recv() {
                     // Generate mesh data
                     let mesh_data = chunk.read().unwrap().gen_mesh(
-                        [
-                            neighbors.0,
-                            neighbors.1,
-                            neighbors.2,
-                            neighbors.3,
-                            neighbors.4,
-                            neighbors.5,
-                        ],
+                        neighbors,
                         &texture_info,
                     );
 
@@ -260,32 +262,10 @@ impl ChunkLoader {
         for coord in &self.to_generate {
             match self.queued_meshes.get(coord) {
                 None => {
-                    let neighbors = NeighborChunks(
-                        match self.chunk_map.get(&coord.dx(1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                        match self.chunk_map.get(&coord.dx(-1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                        match self.chunk_map.get(&coord.dy(-1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                        match self.chunk_map.get(&coord.dy(1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                        match self.chunk_map.get(&coord.dz(1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                        match self.chunk_map.get(&coord.dz(-1)) {
-                            None => continue,
-                            Some(chunk) => chunk.clone(),
-                        },
-                    );
+                    let neighbors = match get_neighbors(&self.chunk_map, coord) {
+                        None => continue,
+                        Some(neighbors) => neighbors,
+                    };
 
                     match self.mesh_q.try_send((
                         coord.clone(),
@@ -376,6 +356,29 @@ impl ChunkLoader {
         }
     }
 
+    /// Sets block
+    pub fn set_block(&self, [x, y, z]: [i32; 3], block: Block) {
+        let chunk_coord = ChunkCoord {
+            x: (x as f32 / CHUNK_SIZE.0 as f32).floor() as i32,
+            y: (y as f32 / CHUNK_SIZE.1 as f32).floor() as i32,
+            z: (z as f32 / CHUNK_SIZE.2 as f32).floor() as i32,
+        };
+        match self.chunk_map.get(&chunk_coord) {
+            None => (),
+            Some(chunk) => {
+                if chunk.write().unwrap().set_block((
+                    (x - chunk_coord.x * CHUNK_SIZE.0 as i32) as usize,
+                    (y - chunk_coord.y * CHUNK_SIZE.1 as i32) as usize,
+                    (z - chunk_coord.z * CHUNK_SIZE.2 as i32) as usize,
+                ), block) {
+                    if let Some(neighbors) = get_neighbors(&self.chunk_map, &chunk_coord) {
+                        neighbors.into_iter().for_each(|n| n.write().unwrap().request_update());
+                    }
+                }
+            },
+        }
+    }
+
     /// Returns chunk data based on coordinate (chunk space). Returns none if chunk is not loaded
     pub fn get_chunk(&self, (i, j, k): (i32, i32, i32)) -> Option<Arc<RwLock<Chunk>>> {
         let chunk_coord = ChunkCoord {
@@ -442,15 +445,6 @@ fn in_distance(player: &player::Player, coord: &ChunkCoord, distance: u16) -> bo
             <= distance as i32
 }
 
-pub struct NeighborChunks(
-    Arc<RwLock<Chunk>>,
-    Arc<RwLock<Chunk>>,
-    Arc<RwLock<Chunk>>,
-    Arc<RwLock<Chunk>>,
-    Arc<RwLock<Chunk>>,
-    Arc<RwLock<Chunk>>,
-);
-
 // fn try_load_from_file(chunk_coord: &ChunkCoord) -> Option<Chunk> {
 //     let path = format!(
 //         "chunks/x{}y{}z{}.chunk",
@@ -461,3 +455,32 @@ pub struct NeighborChunks(
 //         Some(data) => Some(Chunk::from_data(chunk_coord.clone(), data)),
 //     }
 // }
+
+fn get_neighbors(chunk_map: &HashMap<ChunkCoord, Arc<RwLock<Chunk>>>, coord: &ChunkCoord) -> Option<[Arc<RwLock<Chunk>>;6]> {
+    Some([
+        match chunk_map.get(&coord.dx(1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+        match chunk_map.get(&coord.dx(-1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+        match chunk_map.get(&coord.dy(-1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+        match chunk_map.get(&coord.dy(1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+        match chunk_map.get(&coord.dz(1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+        match chunk_map.get(&coord.dz(-1)) {
+            None => return None,
+            Some(chunk) => chunk.clone(),
+        },
+    ])
+}
