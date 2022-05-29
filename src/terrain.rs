@@ -4,7 +4,7 @@ use noise::NoiseFn;
 use noise::Seedable;
 
 use crate::chunk::*;
-use crate::loader::ChunkCoord;
+use crate::loader::*;
 
 #[derive(Clone)]
 pub struct TerrainGenerator {
@@ -20,7 +20,7 @@ impl TerrainGenerator {
         TerrainGenerator {
             seed,
             noise,
-            sea_level: 60,
+            sea_level: 60
         }
     }
 
@@ -54,8 +54,10 @@ impl TerrainGenerator {
                     if heights[(i, k)] > (j as i32 + y * CHUNK_SIZE.1 as i32) {
                         let id = if heights[(i,k)] == (j as i32 + y * CHUNK_SIZE.1 as i32) + 1 {
                             1
-                        } else {
+                        } else if heights[(i,k)] - (j as i32 + y * CHUNK_SIZE.1 as i32) <= 4 {
                             2
+                        } else {
+                            3
                         };
                         out.set_block((i, j, k), Block::new(id, 5.0));
                     }

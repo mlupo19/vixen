@@ -12,8 +12,8 @@ pub const CHUNK_SIZE: (usize, usize, usize) = (32, 32, 32);
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Block {
-    pub id: u16,
-    pub health: f32,
+    id: u16,
+    health: f32,
 }
 
 impl Block {
@@ -26,6 +26,18 @@ impl Block {
 
     pub fn air() -> Block {
         Block { id: 0, health: 0.0 }
+    }
+
+    pub fn is_air(&self) -> bool {
+        self.id == 0
+    }
+
+    pub fn id(&self) -> u16 {
+        self.id
+    }
+
+    pub fn health(&self) -> f32 {
+        self.health
     }
 }
 

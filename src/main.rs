@@ -10,13 +10,15 @@ mod input;
 mod loader;
 mod player;
 mod shaders;
-mod terrain;
 mod texture;
+mod terrain;
+mod inventory;
 
 use player::Player;
 use shaders::load_shader;
 
 use std::ops::Mul;
+use std::time::Instant;
 
 use imgui::*;
 use imgui::{Context, FontConfig, FontSource, Ui};
@@ -46,6 +48,8 @@ fn main() {
     let mut input = input::Input::new();
     let mut player = player::Player::default();
 
+    
+
     match sys.display.gl_window().window().set_cursor_grab(true) {
         Ok(_) => (),
         Err(e) => println!("Error: {}", e),
@@ -54,7 +58,7 @@ fn main() {
 
     // EVENT LOOP
 
-    let mut last_frame = std::time::Instant::now();
+    let mut last_frame = Instant::now();
     let mut last_tick = last_frame;
     let mut frames = 0;
     let mut last_q_sec = last_frame;

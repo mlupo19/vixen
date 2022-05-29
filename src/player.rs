@@ -1,5 +1,6 @@
+use std::time::Instant;
+
 use crate::camera;
-use crate::camera::Camera;
 use crate::chunk::Block;
 use crate::input;
 use crate::loader;
@@ -11,8 +12,6 @@ use parry3d::bounding_volume::BoundingVolume;
 use parry3d::bounding_volume::AABB;
 use parry3d::na::Point3;
 
-use fast_voxel_traversal::raycast_3d::*;
-
 pub struct Player {
     pub x: f32,
     pub y: f32,
@@ -23,8 +22,10 @@ pub struct Player {
     pub lin_speed: f32,
     pub rot_speed: f32,
     pub jump_power: f32,
-    falling: bool,
     pub camera: camera::Camera,
+
+    falling: bool,
+    miner_builder: MinerBuilder,
 }
 
 impl Player {
@@ -45,6 +46,7 @@ impl Player {
             jump_power,
             falling: true,
             camera,
+            ..Default::default()
         }
     }
 
@@ -77,18 +79,20 @@ impl Player {
         if input.is_mouse_button_pressed(&glutin::event::MouseButton::Left) {
             let range = 4.0;
             let coord = cast_ray([self.camera.x,self.camera.y,self.camera.z], range, self.camera.pitch, self.camera.yaw, loader);
-            mine(coord, delta, 10.0, loader);
+            mine(&mut self.miner_builder, coord, delta, 10.0, loader);
         }
 
         // Check if player is trying to build
         if input.is_mouse_button_pressed(&glutin::event::MouseButton::Right) {
-            let range = 4.0;
-            let coord = cast_ray_in_front([self.camera.x, self.camera.y, self.camera.z], range, self.camera.pitch, self.camera.yaw, loader);
-            if let Some(coord) = coord {
-                if coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32, self.camera.z.floor() as i32]
-                 && coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32 - 1, self.camera.z.floor() as i32] {
-                     loader.set_block(coord, Block::new(1, 5.0));
-                 }
+            if self.miner_builder.can_build() {
+                let range = 4.0;
+                let coord = cast_ray_in_front([self.camera.x, self.camera.y, self.camera.z], range, self.camera.pitch, self.camera.yaw, loader);
+                if let Some(coord) = coord {
+                    if coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32, self.camera.z.floor() as i32]
+                    && coord != [self.camera.x.floor() as i32, self.camera.y.floor() as i32 - 1, self.camera.z.floor() as i32] {
+                        loader.set_block(coord, Block::new(1, 5.0));
+                    }
+                }
             }
         }
 
@@ -141,7 +145,7 @@ impl Player {
                             self.velocity.1 = 0.0;
                             dy = 0.0;
                         }
-                        Some(block) if block.id != 0 => {
+                        Some(block) if !block.is_air() => {
                             let block_aabb = AABB::new(
                                 Point3::new(x as f32, y as f32, z as f32),
                                 Point3::new((x + 1) as f32, (y + 1) as f32, (z + 1) as f32),
@@ -196,7 +200,7 @@ impl Default for Player {
             y: 0.0,
             z: 0.0,
             velocity: (0.0, 0.0, 0.0),
-            lin_speed: 10.0,
+            lin_speed: 6.0,
             rot_speed: 0.75,
             jump_power: 8.0,
             falling: true,
@@ -209,6 +213,7 @@ impl Default for Player {
                 roll: 0.0,
                 projection: [[0.0; 4]; 4],
             },
+            miner_builder: MinerBuilder::default(),
         }
     }
 }
@@ -238,7 +243,7 @@ fn cast_ray(start_point: [f32;3], rho: f32, phi: f32, theta: f32, loader: &Chunk
 
     for (x, y, z) in line_drawing::WalkVoxels::new((start_point[0], start_point[1], start_point[2]), end_point, &line_drawing::VoxelOrigin::Corner) {
         if let Some(block) = loader.get_block([x,y,z]) {
-            if block.id != 0 {
+            if !block.is_air() {
                 return [x,y,z];
             }
         }
@@ -257,7 +262,7 @@ fn cast_ray_in_front(start_point: [f32;3], rho: f32, phi: f32, theta: f32, loade
     let mut last = [start_point[0].floor() as i32, start_point[1].floor() as i32, start_point[2].floor() as i32];
     for (x, y, z) in line_drawing::WalkVoxels::new((start_point[0], start_point[1], start_point[2]), end_point, &line_drawing::VoxelOrigin::Corner) {
         if let Some(block) = loader.get_block([x,y,z]) {
-            if block.id != 0 {
+            if block.id() != 0 {
                 return Some(last);
             }
         }
@@ -267,12 +272,59 @@ fn cast_ray_in_front(start_point: [f32;3], rho: f32, phi: f32, theta: f32, loade
 }
 
 #[inline]
-fn mine(coord: [i32;3], delta: f32, speed: f32, loader: &mut ChunkLoader) {
-    let mut block = loader.get_block(coord).unwrap_or(Block::air());
-    block.health -= delta * speed;
-    if block.health <= 0.0 && block.id != 0 {
+fn mine(miner: &mut MinerBuilder, coord: [i32;3], delta: f32, speed: f32, loader: &mut ChunkLoader) {
+    if miner.coord != coord {
+        miner.reset_miner(coord);
+    }
+    miner.coord = coord;
+    miner.update();
+    let block = loader.get_block(coord).unwrap_or(Block::air());
+    let health = block.health();
+    miner.mining_progress += delta * speed;
+    if health - miner.mining_progress <= 0.0 && !block.is_air() {
         loader.set_block(coord.clone(), Block::air());
-    } else {
-        loader.set_block(coord.clone(), block);
+        
+    }
+}
+
+struct MinerBuilder {
+    pub mining_progress: f32,
+    coord: [i32;3],
+    last_mine_time: Instant,
+    last_build_time: Instant,
+}
+
+impl Default for MinerBuilder {
+    fn default() -> Self {
+        Self {
+            mining_progress: Default::default(),
+            coord: Default::default(),
+            last_mine_time: Instant::now(),
+            last_build_time: Instant::now()
+        }
+    }
+}
+
+impl MinerBuilder {
+    pub fn reset_miner(&mut self, coord: [i32;3]) {
+        self.mining_progress = 0.0;
+        self.coord = coord;
+    } 
+
+    pub fn can_build(&mut self) -> bool {
+        let now = Instant::now();
+        if (now - self.last_build_time).as_millis() > 200 {
+            self.last_build_time = now;
+            return true;
+        }
+        false
+    }
+
+    pub fn update(&mut self) {
+        let now = Instant::now();
+        if (now - self.last_mine_time).as_millis() > 80 {
+            self.mining_progress = 0.0;
+        }
+        self.last_mine_time = now;
     }
 }
