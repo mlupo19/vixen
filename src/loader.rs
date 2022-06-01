@@ -4,9 +4,6 @@ use crate::player;
 use crate::texture::*;
 use glium::Surface;
 
-use crossbeam_queue::ArrayQueue;
-use crossbeam_channel::{unbounded, Receiver};
-
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::mem::size_of;
@@ -63,10 +60,10 @@ pub struct ChunkLoader {
     load_distance: u16,
     render_distance: u16,
     simulation_distance: u16,
-    chunk_rx: Receiver<(ChunkCoord, Chunk)>,
-    chunk_q: Arc<ArrayQueue<ChunkCoord>>,
-    mesh_rx: Receiver<MeshData>,
-    mesh_q: Arc<ArrayQueue<ChunkWithNeighbors>>,
+    chunk_rx: std::sync::mpsc::Receiver<(ChunkCoord, Chunk)>,
+    chunk_q: multiqueue::MPMCSender<ChunkCoord>,
+    mesh_rx: std::sync::mpsc::Receiver<MeshData>,
+    mesh_q: multiqueue::MPMCSender<ChunkWithNeighbors>,
 
     needs_build: Vec<MeshData>,
     to_generate: Vec<ChunkCoord>,
@@ -87,36 +84,42 @@ impl ChunkLoader {
         let generator = crate::terrain::TerrainGenerator::new(seed);
 
         // Multithreaded queue for sending coordinates of chunks that need to be loaded to worker threads
-        let chunk_q: Arc<ArrayQueue<ChunkCoord>> = Arc::new(ArrayQueue::new(
-            (load_distance * load_distance * load_distance) as usize * size_of::<ChunkCoord>(),
-        ));
+        let (chunk_q, chunk_q_rec): (
+            multiqueue::MPMCSender<ChunkCoord>,
+            multiqueue::MPMCReceiver<ChunkCoord>,
+        ) = multiqueue::mpmc_queue(
+            (load_distance * load_distance * load_distance) as u64 * size_of::<ChunkCoord>() as u64,
+        );
 
         // Multithreaded queue for sending chunk data that need to be loaded to worker threads for building meshes
-        let mesh_q: Arc<ArrayQueue<ChunkWithNeighbors>> = Arc::new(ArrayQueue::new(
-            (render_distance * render_distance * render_distance) as usize
-                * (size_of::<ChunkCoord>()
-                    + size_of::<Arc<RwLock<Chunk>>>()
-                    + size_of::<NeighborChunks>()) as usize,
-        ));
+        let (mesh_q, mesh_q_rec): (
+            multiqueue::MPMCSender<ChunkWithNeighbors>,
+            multiqueue::MPMCReceiver<ChunkWithNeighbors>,
+        ) = multiqueue::mpmc_queue(
+            (render_distance * render_distance * render_distance) as u64
+            * (size_of::<ChunkCoord>()
+            + size_of::<Arc<RwLock<Chunk>>>()
+            + size_of::<NeighborChunks>()) as u64,
+        );
 
         // Channel for sending loaded chunk back to main thread
-        let (chunk_tx, chunk_rx) = unbounded();
+        let (chunk_tx, chunk_rx) = std::sync::mpsc::channel();
 
         // Channel for sending meshes back to main thread
-        let (mesh_tx, mesh_rx) = unbounded();
+        let (mesh_tx, mesh_rx) = std::sync::mpsc::channel();
 
         // Threads for loading chunks
         for _ in 0..4 {
             let tx = chunk_tx.clone();
-            let chunk_q_rec = chunk_q.clone();
+            let chunk_q_rec = chunk_q_rec.clone();
             let generator = generator.clone();
 
             std::thread::spawn(move || loop {
                 // Receive coordinate of chunk to be loaded
-                let chunk_coord_res = chunk_q_rec.pop();
+                let chunk_coord_res = chunk_q_rec.recv();
 
                 match chunk_coord_res {
-                    Some(chunk_coord) => {
+                    Ok(chunk_coord) => {
                         // Generate chunk
                         // let chunk = match try_load_from_file(&chunk_coord) {
                         //     None => generator.generate_chunk((chunk_coord.x, chunk_coord.y, chunk_coord.z)),
@@ -133,7 +136,7 @@ impl ChunkLoader {
                             }
                         }
                     }
-                    None => {
+                    Err(_) => {
                     }
                 }
             });
@@ -142,12 +145,12 @@ impl ChunkLoader {
         // Threads for loading meshes
         for _ in 0..4 {
             let tx = mesh_tx.clone();
-            let mesh_q_rec = mesh_q.clone();
+            let mesh_q_rec = mesh_q_rec.clone();
             let texture_info = texture_map.info.clone();
 
             std::thread::spawn(move || loop {
                 // Receive data for generating mesh
-                if let Some((coord, chunk, neighbors)) = mesh_q_rec.pop() {
+                if let Ok((coord, chunk, neighbors)) = mesh_q_rec.recv() {
                     // Generate mesh data
                     let mesh_data = chunk.read().unwrap().gen_mesh(
                         neighbors,
@@ -207,7 +210,7 @@ impl ChunkLoader {
                     match &self.chunk_map.get(&chunk_coord) {
                         None => match self.queued_chunks.get(&chunk_coord) {
                             // Queue chunk to be loaded
-                            None => match self.chunk_q.push(chunk_coord.clone()) {
+                            None => match self.chunk_q.try_send(chunk_coord.clone()) {
                                 Ok(_) => {
                                     to_update = true;
                                 }
@@ -263,7 +266,7 @@ impl ChunkLoader {
                         Some(neighbors) => neighbors,
                     };
 
-                    match self.mesh_q.push((
+                    match self.mesh_q.try_send((
                         coord.clone(),
                         self.chunk_map.get(coord).unwrap().clone(),
                         neighbors,
